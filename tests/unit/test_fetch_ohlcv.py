@@ -95,11 +95,9 @@ class TestFetchOhlcv:
         with patch("nasdaq_scanner.providers.fetch_ohlcv.yf.download") as mock_download:
             mock_download.return_value = pd.DataFrame()
 
-            result_df = fetch_ohlcv(tickers, period, interval)
-
-            assert isinstance(result_df, DataFrame)
-            expected_columns = ["ticker", "date", "open", "high", "low", "close", "volume"]
-            assert list(result_df.columns) == expected_columns
+            # Should raise ValueError when no data is returned
+            with pytest.raises(ValueError, match="No data"):
+                fetch_ohlcv(tickers, period, interval)
 
     @pytest.mark.unit
     def test_fetch_ohlcv_column_names_lowercase(self) -> None:
