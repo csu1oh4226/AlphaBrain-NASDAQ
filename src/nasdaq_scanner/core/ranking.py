@@ -2,25 +2,46 @@
 
 This module provides pure functions for ranking and selecting top/bottom N rows
 with tie-breaking rules (stable sort + alphabetical symbol ordering).
+
+Sorting Rules:
+    - Primary sort: By the specified column (descending for top_n, ascending for bottom_n)
+    - Tie-breaker: By 'symbol' column alphabetically (ascending)
+    - Sort algorithm: Stable sort (preserves original order for equal values)
+    - NaN handling: Rows with NaN in the specified column are excluded
 """
 
 import pandas as pd
 from pandas import DataFrame
 
+# Sorting configuration constants
+TIE_BREAKER_COLUMN: str = "symbol"
+"""Column name used for tie-breaking when primary sort values are equal."""
+
+SORT_KIND: str = "stable"
+"""Sort algorithm kind. 'stable' ensures stable sort (preserves original order for equal values)."""
+
+TIE_BREAKER_ASCENDING: bool = True
+"""Sort direction for tie-breaker column. True means alphabetical (A-Z) order."""
+
 
 def top_n(df: DataFrame, col: str, n: int) -> DataFrame:
     """Return top N rows sorted by column in descending order.
 
-    Ties are broken by sorting 'symbol' column alphabetically (ascending).
-    Rows with NaN values in the specified column are excluded.
+    Sorting Rules:
+        - Primary sort: By 'col' in descending order (highest values first)
+        - Tie-breaker: By 'symbol' column alphabetically (ascending, A-Z)
+        - Sort algorithm: Stable sort (preserves original order for equal values)
+        - NaN handling: Rows with NaN in 'col' are excluded
 
     Args:
-        df: DataFrame to rank.
-        col: Column name to sort by.
-        n: Number of top rows to return.
+        df: DataFrame to rank. Must contain 'col' and 'symbol' columns.
+        col: Column name to sort by (primary sort key).
+        n: Number of top rows to return. If n > len(df), returns all valid rows.
 
     Returns:
-        DataFrame with top N rows, sorted by col (descending) then symbol (ascending).
+        DataFrame with top N rows, sorted by:
+        1. 'col' (descending)
+        2. 'symbol' (ascending, for ties)
         Original DataFrame is not modified.
 
     Raises:
@@ -38,8 +59,10 @@ def top_n(df: DataFrame, col: str, n: int) -> DataFrame:
     if col not in df.columns:
         raise KeyError(f"Column '{col}' not found in DataFrame")
 
-    if "symbol" not in df.columns:
-        raise KeyError("Column 'symbol' not found in DataFrame (required for tie-breaking)")
+    if TIE_BREAKER_COLUMN not in df.columns:
+        raise KeyError(
+            f"Column '{TIE_BREAKER_COLUMN}' not found in DataFrame (required for tie-breaking)"
+        )
 
     # Create a copy to avoid side effects
     result_df = df.copy()
@@ -51,12 +74,13 @@ def top_n(df: DataFrame, col: str, n: int) -> DataFrame:
     if len(result_df) == 0 or n == 0:
         return result_df.head(0)
 
-    # Sort by column (descending) and symbol (ascending) for tie-breaking
-    # kind='stable' ensures stable sort (preserves original order for equal values)
+    # Sort by column (descending) and tie-breaker (ascending) for tie-breaking
+    # Primary sort: descending (False) for top values
+    # Tie-breaker: ascending (True) for alphabetical order
     result_df = result_df.sort_values(
-        by=[col, "symbol"],
-        ascending=[False, True],
-        kind="stable",
+        by=[col, TIE_BREAKER_COLUMN],
+        ascending=[False, TIE_BREAKER_ASCENDING],
+        kind=SORT_KIND,
     )
 
     # Return top N rows
@@ -66,16 +90,21 @@ def top_n(df: DataFrame, col: str, n: int) -> DataFrame:
 def bottom_n(df: DataFrame, col: str, n: int) -> DataFrame:
     """Return bottom N rows sorted by column in ascending order.
 
-    Ties are broken by sorting 'symbol' column alphabetically (ascending).
-    Rows with NaN values in the specified column are excluded.
+    Sorting Rules:
+        - Primary sort: By 'col' in ascending order (lowest values first)
+        - Tie-breaker: By 'symbol' column alphabetically (ascending, A-Z)
+        - Sort algorithm: Stable sort (preserves original order for equal values)
+        - NaN handling: Rows with NaN in 'col' are excluded
 
     Args:
-        df: DataFrame to rank.
-        col: Column name to sort by.
-        n: Number of bottom rows to return.
+        df: DataFrame to rank. Must contain 'col' and 'symbol' columns.
+        col: Column name to sort by (primary sort key).
+        n: Number of bottom rows to return. If n > len(df), returns all valid rows.
 
     Returns:
-        DataFrame with bottom N rows, sorted by col (ascending) then symbol (ascending).
+        DataFrame with bottom N rows, sorted by:
+        1. 'col' (ascending)
+        2. 'symbol' (ascending, for ties)
         Original DataFrame is not modified.
 
     Raises:
@@ -93,8 +122,10 @@ def bottom_n(df: DataFrame, col: str, n: int) -> DataFrame:
     if col not in df.columns:
         raise KeyError(f"Column '{col}' not found in DataFrame")
 
-    if "symbol" not in df.columns:
-        raise KeyError("Column 'symbol' not found in DataFrame (required for tie-breaking)")
+    if TIE_BREAKER_COLUMN not in df.columns:
+        raise KeyError(
+            f"Column '{TIE_BREAKER_COLUMN}' not found in DataFrame (required for tie-breaking)"
+        )
 
     # Create a copy to avoid side effects
     result_df = df.copy()
@@ -106,12 +137,13 @@ def bottom_n(df: DataFrame, col: str, n: int) -> DataFrame:
     if len(result_df) == 0 or n == 0:
         return result_df.head(0)
 
-    # Sort by column (ascending) and symbol (ascending) for tie-breaking
-    # kind='stable' ensures stable sort (preserves original order for equal values)
+    # Sort by column (ascending) and tie-breaker (ascending) for tie-breaking
+    # Primary sort: ascending (True) for bottom values
+    # Tie-breaker: ascending (True) for alphabetical order
     result_df = result_df.sort_values(
-        by=[col, "symbol"],
-        ascending=[True, True],
-        kind="stable",
+        by=[col, TIE_BREAKER_COLUMN],
+        ascending=[True, TIE_BREAKER_ASCENDING],
+        kind=SORT_KIND,
     )
 
     # Return bottom N rows
