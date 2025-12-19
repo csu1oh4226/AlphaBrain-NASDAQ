@@ -6,7 +6,7 @@ with error handling and logging for network failures and individual ticker failu
 
 import logging
 import pandas as pd
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import List, Dict, Optional, Any
 from pandas import DataFrame
 

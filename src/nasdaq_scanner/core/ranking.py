@@ -24,6 +24,49 @@ TIE_BREAKER_ASCENDING: bool = True
 """Sort direction for tie-breaker column. True means alphabetical (A-Z) order."""
 
 
+def _rank_n(
+    df: DataFrame, col: str, n: int, ascending: bool
+) -> DataFrame:
+    """Internal function to rank and return top/bottom N rows.
+
+    Args:
+        df: DataFrame to rank.
+        col: Column name to sort by.
+        n: Number of rows to return.
+        ascending: True for bottom (ascending), False for top (descending).
+
+    Returns:
+        DataFrame with ranked rows.
+    """
+    if col not in df.columns:
+        raise KeyError(f"Column '{col}' not found in DataFrame")
+
+    if TIE_BREAKER_COLUMN not in df.columns:
+        raise KeyError(
+            f"Column '{TIE_BREAKER_COLUMN}' not found in DataFrame (required for tie-breaking)"
+        )
+
+    # Create a copy to avoid side effects
+    result_df = df.copy()
+
+    # Exclude rows with NaN values in the specified column
+    result_df = result_df.dropna(subset=[col])
+
+    # If no valid rows or n is 0, return empty DataFrame with same columns
+    if len(result_df) == 0 or n == 0:
+        return result_df.head(0)
+
+    # Sort by column and tie-breaker
+    result_df = result_df.sort_values(
+        by=[col, TIE_BREAKER_COLUMN],
+        ascending=[ascending, TIE_BREAKER_ASCENDING],
+        kind=SORT_KIND,
+    )
+
+    # Return top N rows
+    return result_df.head(n)
+
+
 def top_n(df: DataFrame, col: str, n: int) -> DataFrame:
     """Return top N rows sorted by column in descending order.
 
@@ -56,35 +99,7 @@ def top_n(df: DataFrame, col: str, n: int) -> DataFrame:
         >>> result['return_pct'].iloc[0]
         7.0
     """
-    if col not in df.columns:
-        raise KeyError(f"Column '{col}' not found in DataFrame")
-
-    if TIE_BREAKER_COLUMN not in df.columns:
-        raise KeyError(
-            f"Column '{TIE_BREAKER_COLUMN}' not found in DataFrame (required for tie-breaking)"
-        )
-
-    # Create a copy to avoid side effects
-    result_df = df.copy()
-
-    # Exclude rows with NaN values in the specified column
-    result_df = result_df.dropna(subset=[col])
-
-    # If no valid rows or n is 0, return empty DataFrame with same columns
-    if len(result_df) == 0 or n == 0:
-        return result_df.head(0)
-
-    # Sort by column (descending) and tie-breaker (ascending) for tie-breaking
-    # Primary sort: descending (False) for top values
-    # Tie-breaker: ascending (True) for alphabetical order
-    result_df = result_df.sort_values(
-        by=[col, TIE_BREAKER_COLUMN],
-        ascending=[False, TIE_BREAKER_ASCENDING],
-        kind=SORT_KIND,
-    )
-
-    # Return top N rows
-    return result_df.head(n)
+    return _rank_n(df, col, n, ascending=False)
 
 
 def bottom_n(df: DataFrame, col: str, n: int) -> DataFrame:
@@ -119,33 +134,5 @@ def bottom_n(df: DataFrame, col: str, n: int) -> DataFrame:
         >>> result['return_pct'].iloc[0]
         5.0
     """
-    if col not in df.columns:
-        raise KeyError(f"Column '{col}' not found in DataFrame")
-
-    if TIE_BREAKER_COLUMN not in df.columns:
-        raise KeyError(
-            f"Column '{TIE_BREAKER_COLUMN}' not found in DataFrame (required for tie-breaking)"
-        )
-
-    # Create a copy to avoid side effects
-    result_df = df.copy()
-
-    # Exclude rows with NaN values in the specified column
-    result_df = result_df.dropna(subset=[col])
-
-    # If no valid rows or n is 0, return empty DataFrame with same columns
-    if len(result_df) == 0 or n == 0:
-        return result_df.head(0)
-
-    # Sort by column (ascending) and tie-breaker (ascending) for tie-breaking
-    # Primary sort: ascending (True) for bottom values
-    # Tie-breaker: ascending (True) for alphabetical order
-    result_df = result_df.sort_values(
-        by=[col, TIE_BREAKER_COLUMN],
-        ascending=[True, TIE_BREAKER_ASCENDING],
-        kind=SORT_KIND,
-    )
-
-    # Return bottom N rows
-    return result_df.head(n)
+    return _rank_n(df, col, n, ascending=True)
 

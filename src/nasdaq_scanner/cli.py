@@ -21,12 +21,27 @@ from nasdaq_scanner.core.ranking import top_n, bottom_n
 from nasdaq_scanner.reporter.report import render_markdown, save_markdown
 from nasdaq_scanner.providers.data_provider import fetch_ohlcv_batch
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
 logger = logging.getLogger(__name__)
+
+
+def _setup_logging() -> None:
+    """Configure logging for CLI usage."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        force=True,  # Override any existing configuration
+    )
+
+
+def _handle_error(message: str, exception: Exception) -> None:
+    """Handle errors consistently with logging and exit.
+
+    Args:
+        message: Error message to log.
+        exception: Exception that occurred.
+    """
+    logger.error(f"{message}: {str(exception)}")
+    sys.exit(1)
 
 
 def run_analysis(
@@ -51,8 +66,7 @@ def run_analysis(
         symbols = load_tickers(universe_path)
         logger.info(f"Loaded {len(symbols)} tickers")
     except Exception as e:
-        logger.error(f"Failed to load ticker universe: {str(e)}")
-        sys.exit(1)
+        _handle_error("Failed to load ticker universe", e)
 
     if not symbols:
         logger.error("No tickers found in universe file")
@@ -64,8 +78,7 @@ def run_analysis(
         ohlcv_df = fetch_ohlcv_batch(symbols, analysis_date)
         logger.info(f"Fetched data for {len(ohlcv_df)} symbols")
     except Exception as e:
-        logger.error(f"Failed to fetch data: {str(e)}")
-        sys.exit(1)
+        _handle_error("Failed to fetch data", e)
 
     if ohlcv_df.empty:
         logger.error("No OHLCV data was fetched")
@@ -80,8 +93,7 @@ def run_analysis(
         analysis_df = calc_intraday_vol_pct(analysis_df)
         logger.info(f"Calculated metrics for {len(analysis_df)} symbols")
     except Exception as e:
-        logger.error(f"Failed to calculate metrics: {str(e)}")
-        sys.exit(1)
+        _handle_error("Failed to calculate metrics", e)
 
     # Step 4: Generate rankings
     logger.info(f"Generating top {n} rankings...")
@@ -100,8 +112,7 @@ def run_analysis(
             f"{len(bottom_movers)} bottom, {len(volatile_movers)} volatile"
         )
     except Exception as e:
-        logger.error(f"Failed to generate rankings: {str(e)}")
-        sys.exit(1)
+        _handle_error("Failed to generate rankings", e)
 
     # Step 5: Generate markdown report
     logger.info("Generating markdown report...")
@@ -110,8 +121,7 @@ def run_analysis(
             analysis_date, top_movers, bottom_movers, volatile_movers
         )
     except Exception as e:
-        logger.error(f"Failed to generate report: {str(e)}")
-        sys.exit(1)
+        _handle_error("Failed to generate report", e)
 
     # Step 6: Output report
     if output_path:
@@ -120,8 +130,7 @@ def run_analysis(
             save_markdown(markdown_content, output_path)
             logger.info("Report saved successfully")
         except Exception as e:
-            logger.error(f"Failed to save report: {str(e)}")
-            sys.exit(1)
+            _handle_error("Failed to save report", e)
     else:
         # Print to stdout
         print(markdown_content)
@@ -165,6 +174,8 @@ def main(
     Analyzes NASDAQ tickers for daily movers and volatility,
     generating a markdown report with top movers, bottom movers, and volatile movers.
     """
+    _setup_logging()
+
     if click is None:
         print("Error: click is not installed. Install it with: pip install click")
         sys.exit(1)

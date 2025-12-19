@@ -34,14 +34,11 @@ def _manual_markdown_table(df: DataFrame) -> str:
     """Manually generate markdown table from DataFrame.
 
     Args:
-        df: DataFrame to convert.
+        df: DataFrame to convert. Must not be empty (checked by caller).
 
     Returns:
         Markdown formatted table string.
     """
-    if df.empty:
-        return "*(No data)*\n"
-
     lines = []
     columns = df.columns.tolist()
 
