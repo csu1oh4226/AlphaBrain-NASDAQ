@@ -9,6 +9,7 @@ Rules:
 - Sell candidates: High volatility + Negative daily return
 """
 
+import logging
 import pandas as pd
 import numpy as np
 from pandas import DataFrame
