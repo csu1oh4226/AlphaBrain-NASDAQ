@@ -7,7 +7,8 @@ import sys
 import logging
 from datetime import date, datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
+import pandas as pd
 
 try:
     import click
@@ -50,7 +51,8 @@ def run_analysis(
     n: int = 10,
     output_path: Optional[str] = None,
     export_csv: bool = True,
-) -> None:
+    return_results: bool = False,
+) -> Optional[Dict[str, Any]]:
     """Run the complete analysis pipeline.
 
     Args:
@@ -59,6 +61,23 @@ def run_analysis(
         n: Number of top/bottom movers to include (default: 10).
         output_path: Optional path to save markdown report. If None, prints to stdout.
         export_csv: Whether to export CSV files for top movers (default: True).
+        return_results: If True, returns results dict instead of saving/printing.
+
+    Returns:
+        If return_results=True, returns dict with:
+        {
+            'top_movers': DataFrame,
+            'bottom_movers': DataFrame,
+            'volatile_movers': DataFrame,
+            'analysis_df': DataFrame (with metrics),
+            'analysis_date': date,
+            'stats': {
+                'total_symbols': int,
+                'successful_fetches': int,
+                'failed_fetches': int
+            }
+        }
+        Otherwise returns None.
     """
     logger.info(f"Starting analysis for date: {analysis_date}")
 
@@ -115,6 +134,21 @@ def run_analysis(
         )
     except Exception as e:
         _handle_error("Failed to generate rankings", e)
+
+    # Return results if requested (for GUI usage)
+    if return_results:
+        return {
+            'top_movers': top_movers,
+            'bottom_movers': bottom_movers,
+            'volatile_movers': volatile_movers,
+            'analysis_df': analysis_df,
+            'analysis_date': analysis_date,
+            'stats': {
+                'total_symbols': len(symbols),
+                'successful_fetches': len(ohlcv_df),
+                'failed_fetches': len(symbols) - len(ohlcv_df)
+            }
+        }
 
     # Step 5: Generate markdown report
     logger.info("Generating markdown report...")
