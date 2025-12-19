@@ -47,6 +47,7 @@ class TestGenerateSignals:
         buy_candidates = result["buy_candidates"]
         assert isinstance(buy_candidates, DataFrame)
         assert "ticker" in buy_candidates.columns
+        assert "reason" in buy_candidates.columns  # Reason column should be present
 
         # Verify intersection logic: should contain tickers that are in both top gainers and top volatile
         # For this test data, if we take top 3 gainers and top 3 volatile:
@@ -56,6 +57,12 @@ class TestGenerateSignals:
         buy_tickers = set(buy_candidates["ticker"].unique())
         expected_buy = {"TSLA", "GOOGL", "AAPL"}  # In both top 3 gainers and top 3 volatile
         assert buy_tickers == expected_buy
+
+        # Verify reason column contains explanation
+        if len(buy_candidates) > 0:
+            for _, row in buy_candidates.iterrows():
+                assert isinstance(row["reason"], str)
+                assert len(row["reason"]) > 0
 
     @pytest.mark.unit
     def test_generate_signals_sell_candidates_from_losers(self) -> None:
@@ -87,6 +94,12 @@ class TestGenerateSignals:
         if len(sell_candidates) > 1:
             vols = sell_candidates["vol"].tolist()
             assert vols == sorted(vols, reverse=True)  # Descending order
+
+        # Should have reason column
+        assert "reason" in sell_candidates.columns
+        if len(sell_candidates) > 0:
+            assert isinstance(sell_candidates.iloc[0]["reason"], str)
+            assert len(sell_candidates.iloc[0]["reason"]) > 0
 
     @pytest.mark.unit
     def test_generate_signals_buy_no_intersection(self) -> None:
@@ -142,7 +155,7 @@ class TestGenerateSignals:
 
         result = generate_signals(df_ranked)
 
-        # buy_candidates should preserve original columns
+        # buy_candidates should preserve original columns and include reason
         if len(result["buy_candidates"]) > 0:
             buy = result["buy_candidates"]
             assert "ticker" in buy.columns
@@ -151,6 +164,10 @@ class TestGenerateSignals:
             assert "return" in buy.columns
             assert "vol" in buy.columns
             assert "volume" in buy.columns  # Additional column preserved
+            assert "reason" in buy.columns  # Reason column should be present
+            # Reason should be a string explaining why
+            assert isinstance(buy.iloc[0]["reason"], str)
+            assert len(buy.iloc[0]["reason"]) > 0
 
     @pytest.mark.unit
     def test_generate_signals_empty_dataframe(self) -> None:
