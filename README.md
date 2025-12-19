@@ -156,6 +156,17 @@ make lint && make type-check && make test
    - 외부 API 어댑터 (yfinance 등)
    - 인터페이스 기반 설계 (교체 가능)
    - 에러 처리 및 재시도 로직
+   - **데이터 형식**: `(ticker, date, close, volume)` 컬럼의 DataFrame 반환
+     - `ticker`: str (티커 심볼)
+     - `date`: date (대상 날짜)
+     - `close`: float (종가)
+     - `volume`: int (거래량)
+   - **실패 정책**: 
+     - 빈 history (잘못된 티커): `None` 반환 또는 `failed_symbols`에 추가
+     - 네트워크 오류: 최대 `max_retries`만큼 재시도 후 `None` 반환 또는 `failed_symbols`에 추가
+     - 모든 티커 실패: 빈 DataFrame 반환 (컬럼 유지), 모든 티커를 `failed_symbols`에 추가
+     - 예외 발생: 예외를 잡아서 로깅, 해당 티커를 `failed_symbols`에 추가, 다른 티커는 계속 처리
+     - 자세한 내용: [실패 정책 문서](./docs/yfinance_provider_failure_policy.md)
 
 4. **핵심 로직 레이어** (`core/`)
    - 순수 함수 중심 설계

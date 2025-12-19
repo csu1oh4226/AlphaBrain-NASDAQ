@@ -4,12 +4,21 @@ This module contains all magic numbers, default values, and configuration
 constants used throughout the application.
 """
 
+from typing import List
+
 # Cache Configuration
 CACHE_TTL_SECONDS: int = 3600  # 1 hour cache TTL
 
 # Data Collection
 DEFAULT_MAX_RETRIES: int = 2
 MIN_DATA_POINTS_FOR_ANALYSIS: int = 2
+
+# YFinance Provider Configuration
+YFINANCE_HISTORY_LOOKBACK_DAYS: int = 5  # Days to look back for history data
+YFINANCE_HISTORY_LOOKAHEAD_DAYS: int = 1  # Days to look ahead for history data
+
+# Price Data Column Names
+PRICE_DATA_COLUMNS: List[str] = ["ticker", "date", "close", "volume"]
 
 # Volatility Configuration
 DEFAULT_VOLATILITY_WINDOW: int = 5

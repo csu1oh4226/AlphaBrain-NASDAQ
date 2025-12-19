@@ -1,9 +1,10 @@
 """Enhanced Streamlit app for NASDAQ Daily Movers & Volatility Analyzer.
 
-This is the main Streamlit application with layered architecture:
-- UI Layer: Streamlit components and user interaction
-- Service Layer: Business logic orchestration
-- Data Layer: Data collection and caching
+This is the main Streamlit application with simplified UI:
+- Date selection (default: today/most recent trading day)
+- Top 10 Gainers / Losers / Volatility tables
+- Buy Candidates / Sell Candidates cards with reasons
+- User-friendly error messages
 """
 
 import streamlit as st
@@ -18,30 +19,16 @@ from typing import Any, Optional
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from nasdaq_scanner.services.analytics_service import AnalyticsService
-from nasdaq_scanner.services.recommendation_service import RecommendationService
+from nasdaq_scanner.core.signal_generator import generate_signals
 from nasdaq_scanner.ui.components import (
-    render_top_rankings_table,
-    render_ticker_chart,
-    render_recommendation_card,
-    render_stats_metrics,
+    render_top10_tables,
+    render_buy_sell_candidates,
+    render_error_message,
 )
 from nasdaq_scanner.config import (
     CACHE_TTL_SECONDS,
     DEFAULT_VOLATILITY_WINDOW,
-    MIN_VOLATILITY_WINDOW,
-    MAX_VOLATILITY_WINDOW,
-    DEFAULT_MIN_RETURN_PCT,
-    DEFAULT_MAX_RETURN_PCT,
-    DEFAULT_MIN_VOL_PCT,
-    MIN_RETURN_PCT_LIMIT,
-    MAX_RETURN_PCT_LIMIT,
-    MAX_VOL_PCT_LIMIT,
     DEFAULT_TOP_N,
-    MIN_TOP_N,
-    MAX_TOP_N,
-    DEFAULT_RECOMMENDATION_COUNT,
-    DEFAULT_DATE_RANGE_DAYS,
-    MAX_FAILED_SYMBOLS_DISPLAY,
     TEMP_UNIVERSE_FILENAME,
     TICKER_SOURCE_NASDAQ100,
     TICKER_SOURCE_CSV,
@@ -55,7 +42,6 @@ logger = logging.getLogger(__name__)
 
 # Initialize services
 _analytics_service = AnalyticsService()
-_recommendation_service = RecommendationService()
 
 # Configure page
 st.set_page_config(
@@ -106,82 +92,30 @@ elif ticker_source_type == TICKER_SOURCE_MANUAL:
             t.strip().upper() for t in ticker_input.split(",") if t.strip()
         ]
 
-# Date range selection
-st.sidebar.subheader("📅 날짜 범위")
-use_date_range = st.sidebar.checkbox("날짜 범위 사용", value=False)
-
-if use_date_range:
-    start_date = st.sidebar.date_input(
-        "시작 날짜",
-        value=date.today() - timedelta(days=DEFAULT_DATE_RANGE_DAYS),
-        max_value=date.today(),
-    )
-    end_date = st.sidebar.date_input(
-        "종료 날짜",
-        value=date.today(),
-        max_value=date.today(),
-    )
-    if start_date > end_date:
-        st.sidebar.error("시작 날짜는 종료 날짜보다 이전이어야 합니다.")
-        st.stop()
-    analysis_date = end_date
-else:
-    analysis_date = st.sidebar.date_input(
-        "분석 날짜",
-        value=date.today(),
-        max_value=date.today(),
-        help="분석할 날짜를 선택하세요"
-    )
-
-# Volatility window
-st.sidebar.subheader("📊 변동성 설정")
-volatility_window = st.sidebar.slider(
-    "변동성 윈도우 (일)",
-    min_value=MIN_VOLATILITY_WINDOW,
-    max_value=MAX_VOLATILITY_WINDOW,
-    value=DEFAULT_VOLATILITY_WINDOW,
-    help="변동성 계산에 사용할 기간(일)을 설정하세요"
+# Date selection (default: today, will use most recent trading day)
+st.sidebar.subheader("📅 날짜 선택")
+analysis_date = st.sidebar.date_input(
+    "분석 날짜",
+    value=date.today(),
+    max_value=date.today(),
+    help="분석할 날짜를 선택하세요. 주말/공휴일인 경우 가장 최근 거래일로 자동 조정됩니다."
 )
 
-# Filters
-st.sidebar.subheader("🔍 필터")
-min_return_pct = st.sidebar.number_input(
-    "최소 수익률 (%)",
-    min_value=MIN_RETURN_PCT_LIMIT,
-    max_value=MAX_RETURN_PCT_LIMIT,
-    value=DEFAULT_MIN_RETURN_PCT,
-    step=0.1,
-    help="표시할 최소 수익률 필터"
-)
-max_return_pct = st.sidebar.number_input(
-    "최대 수익률 (%)",
-    min_value=MIN_RETURN_PCT_LIMIT,
-    max_value=MAX_RETURN_PCT_LIMIT,
-    value=DEFAULT_MAX_RETURN_PCT,
-    step=0.1,
-    help="표시할 최대 수익률 필터"
-)
-min_vol_pct = st.sidebar.number_input(
-    "최소 변동성 (%)",
-    min_value=0.0,
-    max_value=MAX_VOL_PCT_LIMIT,
-    value=DEFAULT_MIN_VOL_PCT,
-    step=0.1,
-    help="표시할 최소 변동성 필터"
-)
+# Volatility window (simplified, not shown in sidebar for cleaner UI)
+volatility_window = DEFAULT_VOLATILITY_WINDOW
 
 # Number of top movers
 n_top = st.sidebar.slider(
     "TOP N 종목 수",
-    min_value=MIN_TOP_N,
-    max_value=MAX_TOP_N,
+    min_value=5,
+    max_value=20,
     value=DEFAULT_TOP_N,
     help="상승/하락/변동성 상위 N개 종목을 표시합니다"
 )
 
 # Refresh button
 refresh_button = st.sidebar.button(
-    "🔄 새로고침",
+    "🔄 분석 실행",
     type="primary",
     use_container_width=True
 )
@@ -227,7 +161,6 @@ def compute_metrics_cached(
     """
     return _analytics_service.compute_metrics(price_df, volatility_window)
 
-
 # ============================================================================
 # Main Content
 # ============================================================================
@@ -244,168 +177,144 @@ if refresh_button or st.session_state.get('auto_refresh', False):
                 ticker_source, analysis_date
             )
 
+        # Handle empty data (holiday/weekend/no data)
         if price_df.empty:
-            st.warning(
-                "⚠️ 수집된 데이터가 없습니다. 날짜나 티커 소스를 확인해주세요."
-            )
+            if len(failed_symbols) > 0:
+                # Some symbols failed, but might be holiday
+                render_error_message(
+                    'holiday',
+                    message=f"선택한 날짜: {analysis_date.strftime('%Y-%m-%d')}",
+                    failed_symbols=failed_symbols
+                )
+            else:
+                # No data at all
+                render_error_message(
+                    'no_data',
+                    message=f"선택한 날짜: {analysis_date.strftime('%Y-%m-%d')}"
+                )
             st.stop()
+
+        # Check if we got data but it's from a different date (holiday adjustment)
+        actual_dates = price_df['date'].unique()
+        if len(actual_dates) > 0 and actual_dates[0] != analysis_date:
+            st.info(
+                f"ℹ️ 선택한 날짜({analysis_date.strftime('%Y-%m-%d')})는 거래일이 아닙니다. "
+                f"가장 최근 거래일({actual_dates[0]})의 데이터를 표시합니다."
+            )
 
         # Compute metrics
         with st.spinner("📊 지표 계산 중..."):
             metrics_df = compute_metrics_cached(price_df, volatility_window)
 
         if metrics_df.empty:
-            st.warning("⚠️ 계산된 지표가 없습니다.")
+            render_error_message('empty_result')
             st.stop()
 
-        # Apply filters
-        filtered_df = _analytics_service.apply_filters(
-            metrics_df, min_return_pct, max_return_pct, min_vol_pct
-        )
+        # Handle partial failures
+        if failed_symbols:
+            render_error_message(
+                'collection_failed',
+                failed_symbols=failed_symbols
+            )
 
         # Store in session state
-        st.session_state['metrics_df'] = filtered_df
+        st.session_state['metrics_df'] = metrics_df
         st.session_state['price_df'] = price_df
         st.session_state['failed_symbols'] = failed_symbols
+        st.session_state['analysis_date'] = analysis_date
 
-        # Display stats
-        render_stats_metrics(
-            total_tickers=len(metrics_df),
-            filtered_count=len(filtered_df),
-            successful_fetches=len(price_df['ticker'].unique()),
-            failed_count=len(failed_symbols),
-        )
-
-        if failed_symbols:
-            with st.expander("❌ 실패한 티커 목록"):
-                display_count = min(len(failed_symbols), MAX_FAILED_SYMBOLS_DISPLAY)
-                st.write(", ".join(failed_symbols[:display_count]))
-                if len(failed_symbols) > MAX_FAILED_SYMBOLS_DISPLAY:
-                    remaining = len(failed_symbols) - MAX_FAILED_SYMBOLS_DISPLAY
-                    st.write(f"... 및 {remaining}개 더")
-
+        st.success(f"✅ 분석 완료: {len(metrics_df)}개 종목 분석됨")
         st.markdown("---")
 
     except Exception as e:
         st.error(f"❌ 오류 발생: {str(e)}")
-        st.exception(e)
+        logger.exception(e)
         st.stop()
 
 # Display results if available
 if 'metrics_df' in st.session_state and not st.session_state['metrics_df'].empty:
     metrics_df = st.session_state['metrics_df']
     price_df = st.session_state['price_df']
+    analysis_date = st.session_state.get('analysis_date', date.today())
+
+    # Display analysis date
+    st.subheader(f"📅 분석 날짜: {analysis_date.strftime('%Y-%m-%d')}")
+    st.markdown("---")
 
     # ========================================================================
     # TOP 10 Tables
     # ========================================================================
-    st.header("📈 TOP 10 랭킹")
-
     rankings = _analytics_service.get_top_rankings(metrics_df, n=n_top)
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        render_top_rankings_table(
-            rankings['volatile'],
-            "📊 변동성 TOP 10",
-            'vol_pct',
-            ascending=False,
-        )
-
-    with col2:
-        render_top_rankings_table(
-            rankings['gainers'],
-            "📈 상승 TOP 10",
-            'return_pct',
-            ascending=False,
-        )
-
-    with col3:
-        render_top_rankings_table(
-            rankings['losers'],
-            "📉 하락 TOP 10",
-            'return_pct',
-            ascending=True,
-        )
+    render_top10_tables(rankings, n_top=n_top)
 
     st.markdown("---")
 
     # ========================================================================
-    # Selected Ticker Chart
+    # Buy/Sell Candidates
     # ========================================================================
-    st.header("📊 티커 상세 차트")
+    # Use generate_signals from core/signal_generator.py
+    # This uses the exact rules from README Signal Rules section
+    with st.spinner("💡 매수/매도 후보 생성 중..."):
+        signals = generate_signals(metrics_df, top_n=n_top)
 
-    available_tickers = sorted(metrics_df['ticker'].unique().tolist())
-
-    if available_tickers:
-        selected_ticker = st.selectbox(
-            "티커 선택",
-            options=available_tickers,
-            index=0,
-            help="차트를 표시할 티커를 선택하세요"
-        )
-
-        if selected_ticker:
-            render_ticker_chart(selected_ticker, price_df, metrics_df)
+    render_buy_sell_candidates(
+        buy_candidates=signals['buy_candidates'],
+        sell_candidates=signals['sell_candidates'],
+    )
 
     st.markdown("---")
 
     # ========================================================================
-    # Recommendations Section
+    # Signal Rules Info
     # ========================================================================
-    st.header("💡 추천 종목")
-
-    try:
-        with st.spinner("💡 추천 종목 생성 중..."):
-            recommendations = _recommendation_service.generate_recommendations(
-                metrics_df, max_count=DEFAULT_RECOMMENDATION_COUNT
-            )
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.subheader("💰 매수 추천 (TOP 5)")
-            buy_df = recommendations['buy']
-            if not buy_df.empty:
-                for idx, row in buy_df.iterrows():
-                    render_recommendation_card(row, is_buy=True)
-            else:
-                st.info("매수 추천 종목이 없습니다.")
-
-        with col2:
-            st.subheader("⚠️ 매도 추천 (TOP 5)")
-            sell_df = recommendations['sell']
-            if not sell_df.empty:
-                for idx, row in sell_df.iterrows():
-                    render_recommendation_card(row, is_buy=False)
-            else:
-                st.info("매도 추천 종목이 없습니다.")
-
-    except Exception as e:
-        st.error(f"추천 생성 중 오류: {str(e)}")
-        logger.exception(e)
+    with st.expander("📊 Signal Rules (시그널 규칙) 정보"):
+        st.markdown("""
+        ### Buy Signals (매수 시그널)
+        
+        **규칙:** 상위 상승 + 변동성 상위 교집합
+        
+        1. **상위 상승 종목 선정**: 일간 수익률(`return`) 기준 상위 N개 (기본: 10개)
+        2. **변동성 상위 종목 선정**: 변동성 proxy(`vol`) 기준 상위 N개 (기본: 10개)
+        3. **교집합 선택**: 두 집합에 모두 포함된 종목만 매수 시그널로 선정
+        
+        **Reason (추천 근거):** `"상위 상승(X.XX%) + 변동성 상위(X.XXXX) 교집합"`
+        
+        ### Sell Signals (매도 시그널)
+        
+        **규칙:** 하락 top10 중 변동성 상위
+        
+        1. **하락 종목 선정**: 일간 수익률(`return`)이 음수인 종목 중 하락률이 큰 순서로 상위 N개 (기본: 10개)
+        2. **변동성 기준 재정렬**: 선정된 하락 종목 중 변동성(`vol`)이 높은 순서로 정렬
+        3. **상위 M개 선택**: 변동성이 높은 순서로 상위 M개 선택 (기본: 10개)
+        
+        **Reason (추천 근거):** `"하락(-X.XX%) 상위 중 변동성 높음(X.XXXX)"`
+        
+        ### 주의사항
+        
+        - **투자 자문 아님**: 모든 시그널은 규칙 기반 자동 생성이며, 투자 판단의 참고용입니다.
+        - **과거 데이터 기반**: 현재 시점의 데이터만 사용하며, 미래 성과를 보장하지 않습니다.
+        - **리스크 고려**: 변동성이 높은 종목은 수익과 손실 모두 클 수 있습니다.
+        - **자체 판단 필수**: 모든 투자 결정은 사용자의 판단과 책임 하에 이루어져야 합니다.
+        """)
 
 else:
     # Initial state
     st.info(
-        "👈 왼쪽 사이드바에서 설정을 입력하고 '🔄 새로고침' 버튼을 클릭하세요."
+        "👈 왼쪽 사이드바에서 설정을 입력하고 '🔄 분석 실행' 버튼을 클릭하세요."
     )
 
     st.markdown("### 📋 사용 방법")
     st.markdown("""
     1. **티커 소스 선택**: NASDAQ-100, CSV 파일, 또는 직접 입력
-    2. **날짜 범위 설정**: 단일 날짜 또는 날짜 범위 선택
-    3. **변동성 윈도우 설정**: 변동성 계산 기간 설정
-    4. **필터 설정**: 수익률 및 변동성 필터 적용
-    5. **새로고침**: 데이터 수집 및 분석 실행
+    2. **날짜 선택**: 분석할 날짜 선택 (기본: 오늘, 주말/공휴일은 자동으로 가장 최근 거래일 사용)
+    3. **TOP N 설정**: 상승/하락/변동성 상위 N개 종목 수 설정
+    4. **분석 실행**: 데이터 수집 및 분석 실행
 
     ### 📊 제공 기능
+    - **상승 TOP 10**: 일간 수익률 상위 종목
+    - **하락 TOP 10**: 일간 하락률 상위 종목
     - **변동성 TOP 10**: 변동성 상위 종목
-    - **상승 TOP 10**: 수익률 상위 종목
-    - **하락 TOP 10**: 하락률 상위 종목
-    - **티커 상세 차트**: 선택한 티커의 가격 및 수익률 차트
-    - **매수/매도 추천**: 규칙 기반 추천 종목 및 근거
+    - **매수/매도 후보**: 규칙 기반 추천 종목 및 근거 (README Signal Rules 참조)
     """)
 
     st.markdown("### ⚠️ 면책 조항")

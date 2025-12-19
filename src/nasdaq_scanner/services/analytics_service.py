@@ -13,11 +13,16 @@ from nasdaq_scanner.providers import collect_data
 from nasdaq_scanner.core.analytics import (
     compute_daily_returns,
     compute_volatility,
-    top_movers,
+)
+from nasdaq_scanner.core.analysis_functions import (
+    calc_daily_returns,
+    calc_volatility_proxy,
+    rank_movers,
 )
 from nasdaq_scanner.config import (
     DEFAULT_MAX_RETRIES,
     MIN_DATA_POINTS_FOR_ANALYSIS,
+    DEFAULT_TOP_N,
 )
 
 
@@ -59,62 +64,64 @@ class AnalyticsService:
     ) -> DataFrame:
         """Compute metrics from price data.
 
+        Uses core/analysis_functions.py for consistent calculation:
+        - calc_daily_returns(): Adds 'return' column (daily return %)
+        - calc_volatility_proxy(): Adds 'vol' column (intraday volatility %)
+
         Args:
             price_df: DataFrame with columns: ticker, date, close, volume.
-            volatility_window: Window size for volatility calculation.
+            volatility_window: Window size for volatility calculation (unused, kept for compatibility).
 
         Returns:
             DataFrame with computed metrics:
             - ticker, date, close, volume
-            - return_pct: Daily return percentage
-            - vol_pct: Intraday volatility percentage
-            - volatility: Rolling volatility
+            - return: Daily return percentage (from calc_daily_returns)
+            - vol: Intraday volatility percentage (from calc_volatility_proxy)
         """
         if price_df.empty:
             return pd.DataFrame()
 
-        results = []
+        # Use core/analysis_functions.py for consistent calculation
+        # Step 1: Calculate daily returns (adds 'return' column)
+        df_with_returns = calc_daily_returns(price_df)
 
-        for ticker in price_df['ticker'].unique():
-            ticker_data = price_df[price_df['ticker'] == ticker].sort_values('date')
+        # Step 2: Calculate volatility proxy (adds 'vol' column)
+        # Note: calc_volatility_proxy requires 'open', 'high', 'low' columns
+        # If not available, use price range as fallback
+        if all(col in df_with_returns.columns for col in ['open', 'high', 'low']):
+            df_with_metrics = calc_volatility_proxy(df_with_returns)
+        else:
+            # If OHLC data not available, use price range as volatility proxy
+            df_with_metrics = df_with_returns.copy()
+            # Calculate vol as price range / close * 100 (percentage)
+            for ticker in df_with_metrics['ticker'].unique():
+                ticker_mask = df_with_metrics['ticker'] == ticker
+                ticker_data = df_with_metrics[ticker_mask].sort_values('date')
+                if len(ticker_data) >= MIN_DATA_POINTS_FOR_ANALYSIS:
+                    price_range = ticker_data['close'].max() - ticker_data['close'].min()
+                    base_price = ticker_data['close'].iloc[0]
+                    vol_pct = (price_range / base_price * 100) if base_price > 0 else 0.0
+                    df_with_metrics.loc[ticker_mask, 'vol'] = vol_pct
+                else:
+                    df_with_metrics.loc[ticker_mask, 'vol'] = 0.0
 
-            if len(ticker_data) < MIN_DATA_POINTS_FOR_ANALYSIS:
-                continue
-
-            # Compute daily returns
-            returns = compute_daily_returns(ticker_data['close'])
-
-            # Compute volatility
-            volatility = compute_volatility(returns, volatility_window)
-
-            # Get latest values
-            latest = ticker_data.iloc[-1]
-            latest_return = (
-                returns.iloc[-1] if not pd.isna(returns.iloc[-1]) else 0.0
-            )
-            latest_volatility = (
-                volatility.iloc[-1] if not pd.isna(volatility.iloc[-1]) else 0.0
-            )
-
-            # Calculate intraday volatility using price range
+        # Return latest data for each ticker (for ranking)
+        # This matches the expected format for rank_movers(): ticker, date, close, return, vol
+        latest_data = []
+        for ticker in df_with_metrics['ticker'].unique():
+            ticker_data = df_with_metrics[df_with_metrics['ticker'] == ticker].sort_values('date')
             if len(ticker_data) >= MIN_DATA_POINTS_FOR_ANALYSIS:
-                price_range = ticker_data['close'].max() - ticker_data['close'].min()
-                base_price = ticker_data['close'].iloc[0]
-                vol_pct = (price_range / base_price * 100) if base_price > 0 else 0.0
-            else:
-                vol_pct = 0.0
+                latest = ticker_data.iloc[-1]
+                # Ensure we have return and vol columns
+                if 'return' not in latest.index or pd.isna(latest.get('return')):
+                    continue  # Skip if no valid return
+                latest_data.append(latest)
 
-            results.append({
-                'ticker': ticker,
-                'date': latest['date'],
-                'close': latest['close'],
-                'volume': latest['volume'],
-                'return_pct': latest_return,
-                'vol_pct': vol_pct,
-                'volatility': latest_volatility,
-            })
+        if not latest_data:
+            return pd.DataFrame()
 
-        return pd.DataFrame(results)
+        result_df = pd.DataFrame(latest_data)
+        return result_df
 
     def apply_filters(
         self,
@@ -143,38 +150,36 @@ class AnalyticsService:
     def get_top_rankings(
         self,
         metrics_df: DataFrame,
-        n: int,
+        n: int = DEFAULT_TOP_N,
     ) -> Dict[str, DataFrame]:
         """Get top rankings for volatility, gainers, and losers.
 
+        Uses core/analysis_functions.py::rank_movers() for consistent ranking.
+
         Args:
-            metrics_df: DataFrame with metrics.
-            n: Number of top movers to return.
+            metrics_df: DataFrame with metrics (columns: ticker, date, close, return, vol).
+            n: Number of top movers to return (default: 10).
 
         Returns:
             Dictionary with keys:
-            - 'volatile': Top N by volatility
+            - 'volatile': Top N by vol (descending)
             - 'gainers': Top N by return (descending)
             - 'losers': Top N by return (ascending)
         """
-        # Volatile movers (by vol_pct)
-        volatile = top_movers(metrics_df, n=n, direction='up')
-        if not volatile.empty:
-            volatile = volatile.sort_values('vol_pct', ascending=False).head(n)
+        if metrics_df.empty:
+            return {
+                'volatile': pd.DataFrame(columns=metrics_df.columns),
+                'gainers': pd.DataFrame(columns=metrics_df.columns),
+                'losers': pd.DataFrame(columns=metrics_df.columns),
+            }
 
-        # Gainers (by return_pct descending)
-        gainers = top_movers(metrics_df, n=n, direction='up')
-        if not gainers.empty:
-            gainers = gainers.sort_values('return_pct', ascending=False).head(n)
-
-        # Losers (by return_pct ascending)
-        losers = top_movers(metrics_df, n=n, direction='down')
-        if not losers.empty:
-            losers = losers.sort_values('return_pct', ascending=True).head(n)
+        # Use core/analysis_functions.py::rank_movers() for consistent ranking
+        # This function expects: ticker, return, vol columns
+        rankings = rank_movers(metrics_df, top_n=n)
 
         return {
-            'volatile': volatile,
-            'gainers': gainers,
-            'losers': losers,
+            'volatile': rankings['volatile'],
+            'gainers': rankings['gainers'],
+            'losers': rankings['losers'],
         }
 
