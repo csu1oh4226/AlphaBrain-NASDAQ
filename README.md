@@ -63,33 +63,39 @@ python -m nasdaq_scanner.cli --date 2024-01-15
 
 ```
 .
+├── app.py                        # Streamlit 대시보드 (UI 레이어)
 ├── src/
 │   └── nasdaq_scanner/
 │       ├── __init__.py
-│       ├── cli.py              # CLI 엔트리 포인트
-│       ├── core/                # 핵심 분석 로직 (순수 함수)
-│       │   ├── universe.py      # 유니버스 관리
-│       │   ├── analyzer.py      # 변동성/등락률 계산
-│       │   ├── ranker.py        # Top 10 랭킹
-│       │   └── recommender.py   # Watchlist 제안
-│       ├── providers/            # 외부 API 어댑터 (yfinance 등)
-│       │   ├── base.py          # Provider 인터페이스
-│       │   ├── yfinance.py      # yfinance 어댑터
-│       │   └── mock.py          # 테스트용 Mock Provider
-│       ├── storage/              # 저장소 및 캐시
-│       │   ├── cache.py         # SQLite/파일 캐시
-│       │   └── exporter.py      # CSV/DB export
-│       └── reporter/             # 리포트 생성
-│           └── formatter.py      # 콘솔/CSV/HTML 리포트
+│       ├── cli.py                # CLI 엔트리 포인트
+│       ├── config.py              # 설정 상수 (매직넘버)
+│       ├── core/                  # 핵심 분석 로직 (순수 함수)
+│       │   ├── universe.py        # 유니버스 관리
+│       │   ├── metrics.py         # 수익률/변동성 계산
+│       │   ├── analytics.py       # 일일 수익률, 변동성, 랭킹
+│       │   ├── ranking.py         # Top N 랭킹
+│       │   ├── signals.py         # 규칙 기반 신호 생성
+│       │   └── recommender.py     # 추천 모듈
+│       ├── providers/             # 데이터 수집 레이어
+│       │   ├── base.py            # Provider 인터페이스
+│       │   ├── yfinance_provider.py  # yfinance 구현
+│       │   ├── data_collector.py  # 데이터 수집 모듈
+│       │   └── data_provider.py   # 레거시 (호환성)
+│       ├── services/              # 서비스 레이어 (비즈니스 로직)
+│       │   ├── analytics_service.py    # 분석 서비스
+│       │   └── recommendation_service.py # 추천 서비스
+│       ├── ui/                    # UI 컴포넌트 레이어
+│       │   └── components.py      # 재사용 가능한 UI 컴포넌트
+│       ├── reporter/              # 리포트 생성
+│       │   └── report.py          # 마크다운 리포트
+│       └── storage/               # 저장소 (향후 확장)
 ├── tests/
-│   ├── conftest.py              # 공통 fixtures
-│   ├── unit/                    # 단위 테스트
-│   ├── integration/             # 통합 테스트
-│   └── fixtures/                # 테스트 데이터
-├── pyproject.toml               # 프로젝트 설정 (의존성, pytest 등)
-├── requirements.txt             # 프로덕션 의존성
-├── requirements-dev.txt         # 개발 의존성
-└── pytest.ini                   # pytest 설정
+│   ├── conftest.py               # 공통 fixtures
+│   ├── unit/                      # 단위 테스트
+│   └── integration/               # 통합 테스트
+├── pyproject.toml                 # 프로젝트 설정
+├── requirements.txt               # 프로덕션 의존성
+└── requirements-dev.txt          # 개발 의존성
 ```
 
 ## 🧪 테스트
@@ -132,10 +138,71 @@ make lint && make type-check && make test
 
 ## 🏗️ 아키텍처 원칙
 
-- **순수 함수 중심**: 비즈니스 로직은 순수 함수로 작성 (부작용 최소화)
-- **어댑터 패턴**: 외부 API 호출(yfinance 등)은 어댑터로 분리
-- **테스트 가능성**: 모든 외부 의존성은 mock/stub으로 대체 가능
-- **의존성 주입**: Provider는 인터페이스 기반으로 주입
+### 레이어 분리
+
+프로젝트는 다음과 같은 레이어로 구성됩니다:
+
+1. **UI 레이어** (`app.py`, `ui/`)
+   - Streamlit 기반 사용자 인터페이스
+   - 재사용 가능한 UI 컴포넌트
+   - 사용자 입력 처리
+
+2. **서비스 레이어** (`services/`)
+   - 비즈니스 로직 오케스트레이션
+   - 데이터 수집, 분석, 추천 생성 조율
+   - 캐싱 및 성능 최적화
+
+3. **데이터 수집 레이어** (`providers/`)
+   - 외부 API 어댑터 (yfinance 등)
+   - 인터페이스 기반 설계 (교체 가능)
+   - 에러 처리 및 재시도 로직
+
+4. **핵심 로직 레이어** (`core/`)
+   - 순수 함수 중심 설계
+   - 부작용 없는 비즈니스 로직
+   - 테스트 용이성
+
+### 설계 결정 (Design Decisions)
+
+#### 1. 레이어 분리
+- **이유**: 관심사 분리, 테스트 용이성, 유지보수성 향상
+- **구현**: UI, Service, Data Collection, Core 로직 분리
+
+#### 2. 인터페이스 기반 Provider
+- **이유**: 데이터 소스 교체 용이성
+- **구현**: `MarketDataProvider` 추상 클래스
+
+#### 3. 상수 분리
+- **이유**: 매직넘버 제거, 설정 관리 용이
+- **구현**: `config.py`에 모든 상수 정의
+
+#### 4. 순수 함수 중심
+- **이유**: 테스트 용이성, 예측 가능성, 재사용성
+- **구현**: `core/` 모듈의 모든 함수는 순수 함수
+
+#### 5. 캐싱 전략
+- **이유**: 반복 요청 시 성능 향상
+- **구현**: Streamlit `@st.cache_data` 사용
+
+### TODO (향후 개선 사항)
+
+#### High Priority
+- [ ] 캐싱 메커니즘 구현 (SQLite/파일 기반)
+- [ ] 병렬 다운로드 구현 (concurrent.futures)
+- [ ] 휴장일 처리 강화 (pandas_market_calendars)
+- [ ] 재시도 로직 개선 (지수 백오프)
+
+#### Medium Priority
+- [ ] 데이터 검증 강화 (OHLCV 일관성)
+- [ ] 설정 파일 관리 (YAML/TOML)
+- [ ] 로깅 개선 (구조화된 로깅)
+- [ ] 성능 모니터링 (각 단계별 실행 시간)
+
+#### Low Priority
+- [ ] 에러 복구 전략 (부분 결과 저장)
+- [ ] 문서화 개선 (Sphinx API 문서)
+- [ ] 추가 데이터 제공자 (Polygon, IEX Cloud)
+- [ ] 실시간 업데이트 (WebSocket 지원)
 
 ## 📝 문서
 

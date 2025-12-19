@@ -9,6 +9,27 @@ from pandas import DataFrame
 from typing import List, Dict, Any
 
 from nasdaq_scanner.core.signals import generate_signals
+from nasdaq_scanner.config import (
+    BUY_THRESHOLD_HIGH_RETURN,
+    BUY_THRESHOLD_MODERATE_RETURN,
+    BUY_THRESHOLD_LOW_RETURN,
+    BUY_THRESHOLD_HIGH_VOLATILITY,
+    BUY_THRESHOLD_LOW_VOLATILITY,
+    SELL_THRESHOLD_SHARP_DECLINE,
+    SELL_THRESHOLD_MODERATE_DECLINE,
+    SELL_THRESHOLD_DECLINE,
+    SELL_THRESHOLD_HIGH_VOLATILITY,
+)
+from nasdaq_scanner.config import (
+    BUY_THRESHOLD_HIGH_RETURN,
+    BUY_THRESHOLD_MODERATE_RETURN,
+    BUY_THRESHOLD_LOW_RETURN,
+    BUY_THRESHOLD_HIGH_VOLATILITY,
+    SELL_THRESHOLD_SHARP_DECLINE,
+    SELL_THRESHOLD_MODERATE_DECLINE,
+    SELL_THRESHOLD_DECLINE,
+    SELL_THRESHOLD_HIGH_VOLATILITY,
+)
 
 
 def get_default_buy_rules() -> List[Dict[str, Any]]:
@@ -22,30 +43,30 @@ def get_default_buy_rules() -> List[Dict[str, Any]]:
             'name': 'high_return_top10',
             'condition': lambda row: (
                 pd.notna(row.get('return_pct')) and
-                row.get('return_pct', 0) > 5.0
+                row.get('return_pct', 0) > BUY_THRESHOLD_HIGH_RETURN
             ),
             'action': 'buy',
-            'description': '일간 수익률 5% 이상'
+            'description': f'일간 수익률 {BUY_THRESHOLD_HIGH_RETURN}% 이상'
         },
         {
             'name': 'high_volatility_high_return',
             'condition': lambda row: (
                 pd.notna(row.get('return_pct')) and
                 pd.notna(row.get('vol_pct')) and
-                row.get('return_pct', 0) > 3.0 and
-                row.get('vol_pct', 0) > 4.0
+                row.get('return_pct', 0) > BUY_THRESHOLD_MODERATE_RETURN and
+                row.get('vol_pct', 0) > BUY_THRESHOLD_HIGH_VOLATILITY
             ),
             'action': 'buy',
-            'description': '수익률 3% 이상 + 변동성 4% 이상'
+            'description': f'수익률 {BUY_THRESHOLD_MODERATE_RETURN}% 이상 + 변동성 {BUY_THRESHOLD_HIGH_VOLATILITY}% 이상'
         },
         {
             'name': 'moderate_gain',
             'condition': lambda row: (
                 pd.notna(row.get('return_pct')) and
-                2.0 < row.get('return_pct', 0) <= 5.0
+                BUY_THRESHOLD_LOW_RETURN < row.get('return_pct', 0) <= BUY_THRESHOLD_HIGH_RETURN
             ),
             'action': 'buy',
-            'description': '수익률 2-5% (적정 상승)'
+            'description': f'수익률 {BUY_THRESHOLD_LOW_RETURN}-{BUY_THRESHOLD_HIGH_RETURN}% (적정 상승)'
         },
     ]
 
@@ -61,30 +82,30 @@ def get_default_sell_rules() -> List[Dict[str, Any]]:
             'name': 'sharp_decline',
             'condition': lambda row: (
                 pd.notna(row.get('return_pct')) and
-                row.get('return_pct', 0) < -5.0
+                row.get('return_pct', 0) < SELL_THRESHOLD_SHARP_DECLINE
             ),
             'action': 'sell',
-            'description': '일간 하락률 5% 이상 (급락 주의)'
+            'description': f'일간 하락률 {abs(SELL_THRESHOLD_SHARP_DECLINE)}% 이상 (급락 주의)'
         },
         {
             'name': 'high_volatility_decline',
             'condition': lambda row: (
                 pd.notna(row.get('return_pct')) and
                 pd.notna(row.get('vol_pct')) and
-                row.get('return_pct', 0) < -3.0 and
-                row.get('vol_pct', 0) > 5.0
+                row.get('return_pct', 0) < SELL_THRESHOLD_MODERATE_DECLINE and
+                row.get('vol_pct', 0) > SELL_THRESHOLD_HIGH_VOLATILITY
             ),
             'action': 'sell',
-            'description': '하락률 3% 이상 + 변동성 5% 이상 (불안정)'
+            'description': f'하락률 {abs(SELL_THRESHOLD_MODERATE_DECLINE)}% 이상 + 변동성 {SELL_THRESHOLD_HIGH_VOLATILITY}% 이상 (불안정)'
         },
         {
             'name': 'moderate_decline',
             'condition': lambda row: (
                 pd.notna(row.get('return_pct')) and
-                -5.0 <= row.get('return_pct', 0) < -2.0
+                SELL_THRESHOLD_SHARP_DECLINE <= row.get('return_pct', 0) < SELL_THRESHOLD_DECLINE
             ),
             'action': 'watch',
-            'description': '하락률 2-5% (주의 관찰)'
+            'description': f'하락률 {abs(SELL_THRESHOLD_DECLINE)}-{abs(SELL_THRESHOLD_SHARP_DECLINE)}% (주의 관찰)'
         },
     ]
 

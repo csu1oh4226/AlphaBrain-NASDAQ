@@ -9,6 +9,18 @@ import numpy as np
 from pandas import DataFrame, Series
 from typing import Dict, Any
 
+from nasdaq_scanner.config import (
+    BUY_THRESHOLD_HIGH_RETURN,
+    BUY_THRESHOLD_MODERATE_RETURN,
+    BUY_THRESHOLD_LOW_RETURN,
+    BUY_THRESHOLD_HIGH_VOLATILITY,
+    BUY_THRESHOLD_LOW_VOLATILITY,
+    SELL_THRESHOLD_SHARP_DECLINE,
+    SELL_THRESHOLD_MODERATE_DECLINE,
+    SELL_THRESHOLD_DECLINE,
+    SELL_THRESHOLD_HIGH_VOLATILITY,
+)
+
 
 def compute_daily_returns(prices: Series) -> Series:
     """Calculate daily returns percentage from price series.
@@ -201,30 +213,30 @@ def recommend_trades(metrics_df: DataFrame) -> Dict[str, DataFrame]:
             'name': 'high_return',
             'condition': lambda row: (
                 pd.notna(row.get('return_pct')) and
-                row.get('return_pct', 0) > 5.0
+                row.get('return_pct', 0) > BUY_THRESHOLD_HIGH_RETURN
             ),
             'action': 'buy',
-            'description': '일간 수익률 5% 이상'
+            'description': f'일간 수익률 {BUY_THRESHOLD_HIGH_RETURN}% 이상'
         },
         {
             'name': 'moderate_return',
             'condition': lambda row: (
                 pd.notna(row.get('return_pct')) and
-                3.0 < row.get('return_pct', 0) <= 5.0
+                BUY_THRESHOLD_MODERATE_RETURN < row.get('return_pct', 0) <= BUY_THRESHOLD_HIGH_RETURN
             ),
             'action': 'buy',
-            'description': '수익률 3-5%'
+            'description': f'수익률 {BUY_THRESHOLD_MODERATE_RETURN}-{BUY_THRESHOLD_HIGH_RETURN}%'
         },
         {
             'name': 'high_return_low_volatility',
             'condition': lambda row: (
                 pd.notna(row.get('return_pct')) and
                 pd.notna(row.get('volatility')) and
-                row.get('return_pct', 0) > 2.0 and
-                row.get('volatility', float('inf')) < 3.0
+                row.get('return_pct', 0) > BUY_THRESHOLD_LOW_RETURN and
+                row.get('volatility', float('inf')) < BUY_THRESHOLD_LOW_VOLATILITY
             ),
             'action': 'buy',
-            'description': '수익률 2% 이상 + 낮은 변동성'
+            'description': f'수익률 {BUY_THRESHOLD_LOW_RETURN}% 이상 + 낮은 변동성'
         },
     ]
 
@@ -234,30 +246,30 @@ def recommend_trades(metrics_df: DataFrame) -> Dict[str, DataFrame]:
             'name': 'sharp_decline',
             'condition': lambda row: (
                 pd.notna(row.get('return_pct')) and
-                row.get('return_pct', 0) < -5.0
+                row.get('return_pct', 0) < SELL_THRESHOLD_SHARP_DECLINE
             ),
             'action': 'sell',
-            'description': '일간 하락률 5% 이상 (급락 주의)'
+            'description': f'일간 하락률 {abs(SELL_THRESHOLD_SHARP_DECLINE)}% 이상 (급락 주의)'
         },
         {
             'name': 'moderate_decline',
             'condition': lambda row: (
                 pd.notna(row.get('return_pct')) and
-                -5.0 <= row.get('return_pct', 0) < -3.0
+                SELL_THRESHOLD_SHARP_DECLINE <= row.get('return_pct', 0) < SELL_THRESHOLD_MODERATE_DECLINE
             ),
             'action': 'sell',
-            'description': '하락률 3-5%'
+            'description': f'하락률 {abs(SELL_THRESHOLD_MODERATE_DECLINE)}-{abs(SELL_THRESHOLD_SHARP_DECLINE)}%'
         },
         {
             'name': 'high_volatility_decline',
             'condition': lambda row: (
                 pd.notna(row.get('return_pct')) and
                 pd.notna(row.get('volatility')) and
-                row.get('return_pct', 0) < -2.0 and
-                row.get('volatility', 0) > 5.0
+                row.get('return_pct', 0) < SELL_THRESHOLD_DECLINE and
+                row.get('volatility', 0) > SELL_THRESHOLD_HIGH_VOLATILITY
             ),
             'action': 'sell',
-            'description': '하락률 2% 이상 + 높은 변동성'
+            'description': f'하락률 {abs(SELL_THRESHOLD_DECLINE)}% 이상 + 높은 변동성'
         },
     ]
 
