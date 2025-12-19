@@ -11,7 +11,7 @@ from typing import Dict
 from nasdaq_scanner.config import DEFAULT_TOP_N
 
 
-def generate_signals(df_ranked: DataFrame, top_n: int = DEFAULT_TOP_N) -> Dict[str, DataFrame]:
+def generate_signals(df_ranked: DataFrame, top_n: int = DEFAULT_TOP_N) -> Dict[str, DataFrame]:  # type: ignore[type-arg]
     """Generate buy and sell signals based on rule-based analysis.
 
     Rules:
@@ -80,7 +80,7 @@ def generate_signals(df_ranked: DataFrame, top_n: int = DEFAULT_TOP_N) -> Dict[s
     }
 
 
-def _get_buy_candidates(df: DataFrame, top_n: int) -> DataFrame:
+def _get_buy_candidates(df: DataFrame, top_n: int) -> DataFrame:  # type: ignore[type-arg]
     """Get buy candidates as intersection of top gainers and top volatile.
 
     Args:
@@ -128,7 +128,7 @@ def _get_buy_candidates(df: DataFrame, top_n: int) -> DataFrame:
     return buy_df
 
 
-def _get_sell_candidates(df: DataFrame, top_n: int) -> DataFrame:
+def _get_sell_candidates(df: DataFrame, top_n: int) -> DataFrame:  # type: ignore[type-arg]
     """Get sell candidates from top losers by volatility.
 
     Args:

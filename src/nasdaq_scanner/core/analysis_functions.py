@@ -9,11 +9,13 @@ This module provides functions for:
 import pandas as pd
 import numpy as np
 from pandas import DataFrame
-from typing import Dict
+from typing import Dict, List
 from datetime import date
 
+from nasdaq_scanner.config import DEFAULT_TOP_N
 
-def calc_daily_returns(df: DataFrame) -> DataFrame:
+
+def calc_daily_returns(df: DataFrame) -> DataFrame:  # type: ignore[type-arg]
     """Calculate daily returns per ticker.
 
     Calculates daily return percentage for each ticker by grouping by ticker
@@ -66,7 +68,7 @@ def calc_daily_returns(df: DataFrame) -> DataFrame:
     return result_df
 
 
-def calc_volatility_proxy(df: DataFrame) -> DataFrame:
+def calc_volatility_proxy(df: DataFrame) -> DataFrame:  # type: ignore[type-arg]
     """Calculate volatility proxy: (high - low) / open.
 
     Calculates intraday volatility as a percentage of opening price.
@@ -113,10 +115,10 @@ def calc_volatility_proxy(df: DataFrame) -> DataFrame:
     return result_df
 
 
-def rank_movers(df: DataFrame) -> Dict[str, DataFrame]:
+def rank_movers(df: DataFrame, top_n: int = DEFAULT_TOP_N) -> Dict[str, DataFrame]:  # type: ignore[type-arg]
     """Rank top movers: gainers, losers, and volatile stocks.
 
-    Returns top 10 (or fewer) stocks for each category:
+    Returns top N (or fewer) stocks for each category:
     - Gainers: Highest daily returns (descending)
     - Losers: Lowest daily returns (ascending, most negative first)
     - Volatile: Highest volatility proxy (descending)
@@ -124,12 +126,13 @@ def rank_movers(df: DataFrame) -> Dict[str, DataFrame]:
     Args:
         df: DataFrame with columns: ticker, date, return, vol (and optionally others).
             Should have 'return' and 'vol' columns (from calc_daily_returns and calc_volatility_proxy).
+        top_n: Number of top stocks to return for each category (default: 10).
 
     Returns:
         Dictionary with keys:
-        - 'gainers': DataFrame with top 10 gainers (sorted by return descending)
-        - 'losers': DataFrame with top 10 losers (sorted by return ascending)
-        - 'volatile': DataFrame with top 10 volatile stocks (sorted by vol descending)
+        - 'gainers': DataFrame with top N gainers (sorted by return descending)
+        - 'losers': DataFrame with top N losers (sorted by return ascending)
+        - 'volatile': DataFrame with top N volatile stocks (sorted by vol descending)
         Each DataFrame contains columns: ticker, date, close, return, vol (and original columns).
 
     Examples:
@@ -144,6 +147,9 @@ def rank_movers(df: DataFrame) -> Dict[str, DataFrame]:
         >>> 'gainers' in result
         True
         >>> len(result['gainers']) <= 10
+        True
+        >>> result = rank_movers(df, top_n=5)
+        >>> len(result['gainers']) <= 5
         True
     """
     if df.empty:
@@ -171,61 +177,24 @@ def rank_movers(df: DataFrame) -> Dict[str, DataFrame]:
     # Filter out NaN vols for volatile
     df_with_vols = df[df["vol"].notna()].copy()
 
-    # Rank gainers: sort by return descending, take top 10
-    # For each ticker, use the row with highest return (in case of multiple dates)
-    if not df_with_returns.empty:
-        # Group by ticker and take the row with highest return for each ticker
-        gainers_by_ticker = (
-            df_with_returns.sort_values("return", ascending=False)
-            .groupby("ticker", as_index=False)
-            .first()
-        )
-        # Then sort by return descending and take top 10
-        gainers = (
-            gainers_by_ticker.sort_values("return", ascending=False)
-            .head(10)
-            .copy()
-        )
-    else:
-        gainers = pd.DataFrame(columns=df.columns)
+    # Rank gainers: sort by return descending, take top N
+    gainers = _rank_by_metric(
+        df_with_returns, "return", ascending=False, top_n=top_n, default_columns=df.columns
+    )
 
-    # Rank losers: sort by return ascending (most negative first), take top 10
-    if not df_with_returns.empty:
-        # Group by ticker and take the row with lowest return for each ticker
-        losers_by_ticker = (
-            df_with_returns.sort_values("return", ascending=True)
-            .groupby("ticker", as_index=False)
-            .first()
-        )
-        # Then sort by return ascending and take top 10
-        losers = (
-            losers_by_ticker.sort_values("return", ascending=True)
-            .head(10)
-            .copy()
-        )
-    else:
-        losers = pd.DataFrame(columns=df.columns)
+    # Rank losers: sort by return ascending (most negative first), take top N
+    losers = _rank_by_metric(
+        df_with_returns, "return", ascending=True, top_n=top_n, default_columns=df.columns
+    )
 
-    # Rank volatile: sort by vol descending, take top 10
-    if not df_with_vols.empty:
-        # Group by ticker and take the row with highest vol for each ticker
-        volatile_by_ticker = (
-            df_with_vols.sort_values("vol", ascending=False)
-            .groupby("ticker", as_index=False)
-            .first()
-        )
-        # Then sort by vol descending and take top 10
-        volatile = (
-            volatile_by_ticker.sort_values("vol", ascending=False)
-            .head(10)
-            .copy()
-        )
-    else:
-        volatile = pd.DataFrame(columns=df.columns)
+    # Rank volatile: sort by vol descending, take top N
+    volatile = _rank_by_metric(
+        df_with_vols, "vol", ascending=False, top_n=top_n, default_columns=df.columns
+    )
 
     # Select required columns for result
     # Ensure ticker, date, close, return, vol are included if available
-    def select_columns(df_result: DataFrame) -> DataFrame:
+    def _select_result_columns(df_result: DataFrame) -> DataFrame:
         if df_result.empty:
             return df_result
         # Always include available required columns
@@ -238,8 +207,47 @@ def rank_movers(df: DataFrame) -> Dict[str, DataFrame]:
         return df_result[all_cols]
 
     return {
-        "gainers": select_columns(gainers),
-        "losers": select_columns(losers),
-        "volatile": select_columns(volatile),
+        "gainers": _select_result_columns(gainers),
+        "losers": _select_result_columns(losers),
+        "volatile": _select_result_columns(volatile),
     }
+
+
+def _rank_by_metric(
+    df: DataFrame,
+    metric_col: str,
+    ascending: bool,
+    top_n: int,
+    default_columns: List[str],
+) -> DataFrame:
+    """Helper function to rank stocks by a metric and return top N.
+
+    Args:
+        df: DataFrame with ticker and metric column.
+        metric_col: Column name to rank by.
+        ascending: Sort order (True for ascending, False for descending).
+        top_n: Number of top stocks to return.
+        default_columns: Default columns for empty DataFrame.
+
+    Returns:
+        DataFrame with top N stocks ranked by metric.
+    """
+    if df.empty:
+        return pd.DataFrame(columns=default_columns)
+
+    # Group by ticker and take the row with best metric value for each ticker
+    ranked_by_ticker = (
+        df.sort_values(metric_col, ascending=ascending)
+        .groupby("ticker", as_index=False)
+        .first()
+    )
+
+    # Sort by metric and take top N
+    result = (
+        ranked_by_ticker.sort_values(metric_col, ascending=ascending)
+        .head(top_n)
+        .copy()
+    )
+
+    return result
 

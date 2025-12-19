@@ -24,7 +24,36 @@ from nasdaq_scanner.core.analysis_functions import (
     rank_movers,
 )
 from nasdaq_scanner.core.signal_generator import generate_signals
-from nasdaq_scanner.providers.data_collector import get_nasdaq100_tickers, load_ticker_list
+from nasdaq_scanner.providers.data_collector import get_nasdaq100_tickers
+from nasdaq_scanner.config import DEFAULT_TOP_N
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+def _render_ranking_table(df: pd.DataFrame, display_columns: List[str], column_mapping: dict) -> None:
+    """Render a ranking table with specified columns and Korean labels.
+    
+    Args:
+        df: DataFrame to display.
+        display_columns: List of column names to display.
+        column_mapping: Dictionary mapping English column names to Korean labels.
+    """
+    if df.empty:
+        st.info("데이터가 없습니다.")
+        return
+    
+    available_cols = [col for col in display_columns if col in df.columns]
+    if not available_cols:
+        st.warning("표시할 컬럼이 없습니다.")
+        return
+    
+    st.dataframe(
+        df[available_cols].rename(columns=column_mapping),
+        use_container_width=True,
+        hide_index=True
+    )
+
 
 # Configure page
 st.set_page_config(
@@ -135,7 +164,7 @@ if run_button:
 
         # Step 4: Rank movers
         with st.spinner("🏆 랭킹 생성 중..."):
-            rankings = rank_movers(metrics_df)
+            rankings = rank_movers(metrics_df, top_n=DEFAULT_TOP_N)
 
         # Step 5: Generate signals
         with st.spinner("💡 시그널 생성 중..."):
@@ -157,66 +186,44 @@ if run_button:
 
         col1, col2, col3 = st.columns(3)
 
+        # Common column mapping for Korean labels
+        COLUMN_MAPPING = {
+            'ticker': '티커',
+            'date': '날짜',
+            'return': '수익률 (%)',
+            'vol': '변동성',
+            'close': '종가',
+            'reason': '추천 근거'
+        }
+        
+        # Common display columns for rankings
+        RANKING_DISPLAY_COLS = ['ticker', 'date', 'return', 'vol', 'close']
+        VOLATILE_DISPLAY_COLS = ['ticker', 'date', 'vol', 'return', 'close']
+        SIGNAL_DISPLAY_COLS = ['ticker', 'date', 'return', 'vol', 'close', 'reason']
+
         with col1:
             st.subheader("📈 상승 TOP 10")
-            gainers = rankings['gainers']
-            if not gainers.empty:
-                # Select columns to display
-                display_cols = ['ticker', 'date', 'return', 'vol', 'close']
-                available_cols = [c for c in display_cols if c in gainers.columns]
-                st.dataframe(
-                    gainers[available_cols].rename(columns={
-                        'ticker': '티커',
-                        'date': '날짜',
-                        'return': '수익률 (%)',
-                        'vol': '변동성',
-                        'close': '종가'
-                    }),
-                    use_container_width=True,
-                    hide_index=True
-                )
-            else:
-                st.info("상승 종목 데이터가 없습니다.")
+            _render_ranking_table(
+                rankings['gainers'],
+                RANKING_DISPLAY_COLS,
+                COLUMN_MAPPING
+            )
 
         with col2:
             st.subheader("📉 하락 TOP 10")
-            losers = rankings['losers']
-            if not losers.empty:
-                display_cols = ['ticker', 'date', 'return', 'vol', 'close']
-                available_cols = [c for c in display_cols if c in losers.columns]
-                st.dataframe(
-                    losers[available_cols].rename(columns={
-                        'ticker': '티커',
-                        'date': '날짜',
-                        'return': '수익률 (%)',
-                        'vol': '변동성',
-                        'close': '종가'
-                    }),
-                    use_container_width=True,
-                    hide_index=True
-                )
-            else:
-                st.info("하락 종목 데이터가 없습니다.")
+            _render_ranking_table(
+                rankings['losers'],
+                RANKING_DISPLAY_COLS,
+                COLUMN_MAPPING
+            )
 
         with col3:
             st.subheader("📊 변동성 TOP 10")
-            volatile = rankings['volatile']
-            if not volatile.empty:
-                display_cols = ['ticker', 'date', 'vol', 'return', 'close']
-                available_cols = [c for c in display_cols if c in volatile.columns]
-                st.dataframe(
-                    volatile[available_cols].rename(columns={
-                        'ticker': '티커',
-                        'date': '날짜',
-                        'vol': '변동성',
-                        'return': '수익률 (%)',
-                        'close': '종가'
-                    }),
-                    use_container_width=True,
-                    hide_index=True
-                )
-            else:
-                st.info("변동성 데이터가 없습니다.")
+            _render_ranking_table(
+                rankings['volatile'],
+                VOLATILE_DISPLAY_COLS,
+                COLUMN_MAPPING
+            )
 
         st.markdown("---")
 
@@ -229,45 +236,19 @@ if run_button:
 
         with col1:
             st.subheader("💰 매수 후보")
-            buy_candidates = signals['buy_candidates']
-            if not buy_candidates.empty:
-                display_cols = ['ticker', 'date', 'return', 'vol', 'close', 'reason']
-                available_cols = [c for c in display_cols if c in buy_candidates.columns]
-                st.dataframe(
-                    buy_candidates[available_cols].rename(columns={
-                        'ticker': '티커',
-                        'date': '날짜',
-                        'return': '수익률 (%)',
-                        'vol': '변동성',
-                        'close': '종가',
-                        'reason': '추천 근거'
-                    }),
-                    use_container_width=True,
-                    hide_index=True
-                )
-            else:
-                st.info("매수 후보가 없습니다.")
+            _render_ranking_table(
+                signals['buy_candidates'],
+                SIGNAL_DISPLAY_COLS,
+                COLUMN_MAPPING
+            )
 
         with col2:
             st.subheader("⚠️ 매도 후보")
-            sell_candidates = signals['sell_candidates']
-            if not sell_candidates.empty:
-                display_cols = ['ticker', 'date', 'return', 'vol', 'close', 'reason']
-                available_cols = [c for c in display_cols if c in sell_candidates.columns]
-                st.dataframe(
-                    sell_candidates[available_cols].rename(columns={
-                        'ticker': '티커',
-                        'date': '날짜',
-                        'return': '수익률 (%)',
-                        'vol': '변동성',
-                        'close': '종가',
-                        'reason': '추천 근거'
-                    }),
-                    use_container_width=True,
-                    hide_index=True
-                )
-            else:
-                st.info("매도 후보가 없습니다.")
+            _render_ranking_table(
+                signals['sell_candidates'],
+                SIGNAL_DISPLAY_COLS,
+                COLUMN_MAPPING
+            )
 
         st.markdown("---")
 

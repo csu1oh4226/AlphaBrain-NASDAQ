@@ -21,7 +21,7 @@ def fetch_ohlcv(
     tickers: Union[str, List[str]],
     period: str,
     interval: str,
-) -> DataFrame:
+) -> DataFrame:  # type: ignore[type-arg]
     """Fetch OHLCV data from yfinance and return as tidy DataFrame.
 
     Args:
@@ -92,7 +92,7 @@ def fetch_ohlcv(
 def _convert_to_tidy_format(
     df: DataFrame,
     tickers: List[str],
-) -> DataFrame:
+) -> DataFrame:  # type: ignore[type-arg]
     """Convert yfinance MultiIndex DataFrame to tidy format.
 
     Args:
