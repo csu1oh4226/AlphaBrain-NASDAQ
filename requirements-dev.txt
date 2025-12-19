@@ -1,0 +1,7 @@
+# Include production dependencies
+-r requirements.txt
+
+# Additional development tools
+ipython>=8.0.0
+ipdb>=0.13.0
+
