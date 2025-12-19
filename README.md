@@ -373,3 +373,7 @@ Sell Candidates: XYZ, ABC (변동성 상위)
 
 **자세한 내용은 [KTP_RETROSPECTIVE.md](KTP_RETROSPECTIVE.md)를 참고하세요.**
 
+### 회고 문서
+- [리팩토링 회고](./docs/retrospective_refactoring.md) - 리팩토링 작업 KTP 회고
+- [KTP 회고](./KTP_RETROSPECTIVE.md) - 프로젝트 전체 KTP 회고
+
