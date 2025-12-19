@@ -1,10 +1,10 @@
-# NASDAQ Daily Movers & Volatility Analyzer
+# KOSPI/KOSDAQ Daily Movers & Volatility Analyzer
 
-NASDAQ 상장 종목의 당일 주가 데이터를 수집하여 변동성 및 등락률 상위 종목을 분석하고, 규칙 기반으로 관심 매수/매도 후보를 생성하는 도구입니다.
+KOSPI/KOSDAQ 상장 종목의 당일 주가 데이터를 수집하여 변동성 및 등락률 상위 종목을 분석하고, 규칙 기반으로 관심 매수/매도 후보를 생성하는 도구입니다.
 
 ## 📋 개요
 
-이 프로젝트는 NASDAQ 상장 종목의 일일 주가 데이터를 분석하여:
+이 프로젝트는 KOSPI/KOSDAQ 상장 종목의 일일 주가 데이터를 분석하여:
 - 일중 변동성(Volatility) 상위 종목 10개
 - 상승률 상위 10개
 - 하락률 상위 10개
@@ -14,6 +14,41 @@ NASDAQ 상장 종목의 당일 주가 데이터를 수집하여 변동성 및 �
 ## ⚠️ 면책 조항
 
 **이 도구는 투자 자문이 아닙니다.** 모든 분석 결과는 참고용이며, 투자 결정은 사용자의 판단에 따라 이루어져야 합니다. 데이터 제공사의 약관을 준수하며 사용하시기 바랍니다.
+
+## 📊 데이터 소스
+
+### 데이터 소스
+
+#### KOSPI/KOSDAQ 지수 및 종목
+- **데이터 소스**: FinanceDataReader
+- **지수**: 
+  - KOSPI 종합지수 (KS11)
+  - KOSDAQ 종합지수 (KQ11)
+- **개별 종목**: 시가총액 상위 종목 자동 수집
+- **특징**: 
+  - API 키 불필요 (무료)
+  - 한국 주식 시장 데이터 제공
+  - 캐싱으로 중복 요청 방지
+  - 지수 backoff 재시도 (최대 3회)
+
+#### 개별 티커
+- **데이터 소스**: FinanceDataReader
+- **용도**: CSV 파일 업로드 또는 직접 입력 시 사용
+
+### 캐싱 정책
+
+- **캐시 키**: (날짜, 심볼) 튜플
+- **캐시 범위**: 같은 날짜/심볼 재요청 방지
+- **캐시 저장소**: 메모리 기반 (`_request_cache` 딕셔너리)
+
+### 예외 처리
+
+- **재시도**: 최대 3회, 지수 backoff (1초, 2초, 4초)
+- **오류 분류**:
+  - 네트워크 오류: `Network error`
+  - 데이터 없음: `No data for {symbol} on {date}`
+  - 심볼 불일치: `Invalid symbol`
+  - 기타: `Error: {message}`
 
 ## 🚀 시작하기
 
@@ -26,8 +61,8 @@ NASDAQ 상장 종목의 당일 주가 데이터를 수집하여 변동성 및 �
 
 ```bash
 # 저장소 클론
-git clone https://github.com/csu1oh4226/AlphaBrain-NASDAQ.git
-cd AlphaBrain-NASDAQ
+git clone https://github.com/csu1oh4226/AlphaBrain-KOSPI-KOSDAQ.git
+cd AlphaBrain-KOSPI-KOSDAQ
 
 # 가상 환경 생성 및 활성화
 python -m venv venv
@@ -42,21 +77,16 @@ pip install -e ".[dev]"
 
 ### 설정
 
-`.env.example` 파일을 참고하여 `.env` 파일을 생성하고 API 키를 설정하세요.
-
-```bash
-cp .env.example .env
-# .env 파일을 편집하여 API 키 입력
-```
+FinanceDataReader는 API 키가 필요 없습니다. 바로 사용할 수 있습니다.
 
 ## 📖 사용 방법
 
 ```bash
-# CLI 실행 (구현 예정)
-nasdaq-scanner --date 2024-01-15
+# Streamlit 앱 실행
+streamlit run app.py
 
 # 또는 Python 모듈로 실행
-python -m nasdaq_scanner.cli --date 2024-01-15
+python -m streamlit run app.py
 ```
 
 ## 📁 프로젝트 구조
@@ -65,7 +95,7 @@ python -m nasdaq_scanner.cli --date 2024-01-15
 .
 ├── app.py                        # Streamlit 대시보드 (UI 레이어)
 ├── src/
-│   └── nasdaq_scanner/
+│   └── nasdaq_scanner/  # 패키지명 (레거시, 향후 변경 가능)
 │       ├── __init__.py
 │       ├── cli.py                # CLI 엔트리 포인트
 │       ├── config.py              # 설정 상수 (매직넘버)
@@ -78,7 +108,7 @@ python -m nasdaq_scanner.cli --date 2024-01-15
 │       │   └── recommender.py     # 추천 모듈
 │       ├── providers/             # 데이터 수집 레이어
 │       │   ├── base.py            # Provider 인터페이스
-│       │   ├── yfinance_provider.py  # yfinance 구현
+│       │   ├── financedatareader_provider.py  # FinanceDataReader 구현 (KOSPI/KOSDAQ)
 │       │   ├── data_collector.py  # 데이터 수집 모듈
 │       │   └── data_provider.py   # 레거시 (호환성)
 │       ├── services/              # 서비스 레이어 (비즈니스 로직)
@@ -153,20 +183,19 @@ make lint && make type-check && make test
    - 캐싱 및 성능 최적화
 
 3. **데이터 수집 레이어** (`providers/`)
-   - 외부 API 어댑터 (yfinance 등)
+   - 외부 API 어댑터 (FinanceDataReader)
    - 인터페이스 기반 설계 (교체 가능)
    - 에러 처리 및 재시도 로직
-   - **데이터 형식**: `(ticker, date, close, volume)` 컬럼의 DataFrame 반환
+   - **데이터 형식**: `(ticker, date, open, high, low, close, volume)` 컬럼의 DataFrame 반환
      - `ticker`: str (티커 심볼)
      - `date`: date (대상 날짜)
-     - `close`: float (종가)
+     - `open, high, low, close`: float (시가, 고가, 저가, 종가)
      - `volume`: int (거래량)
    - **실패 정책**: 
      - 빈 history (잘못된 티커): `None` 반환 또는 `failed_symbols`에 추가
      - 네트워크 오류: 최대 `max_retries`만큼 재시도 후 `None` 반환 또는 `failed_symbols`에 추가
      - 모든 티커 실패: 빈 DataFrame 반환 (컬럼 유지), 모든 티커를 `failed_symbols`에 추가
      - 예외 발생: 예외를 잡아서 로깅, 해당 티커를 `failed_symbols`에 추가, 다른 티커는 계속 처리
-     - 자세한 내용: [실패 정책 문서](./docs/yfinance_provider_failure_policy.md)
 
 4. **핵심 로직 레이어** (`core/`)
    - 순수 함수 중심 설계
@@ -281,8 +310,8 @@ Sell Candidates: XYZ, ABC (변동성 상위)
 
 - [PRD 문서](PRD.md)
 - [KTP 회고](KTP_RETROSPECTIVE.md)
-- NASDAQ 공식 문서
-- Provider API 문서 (Polygon, IEX Cloud 등)
+- [FinanceDataReader 문서](https://github.com/FinanceData/FinanceDataReader)
+- 한국거래소 공시시스템
 
 ---
 
@@ -318,7 +347,8 @@ Sell Candidates: XYZ, ABC (변동성 상위)
 ### ⚠️ Problem (문제/리스크)
 
 1. **데이터 신뢰성 및 품질 이슈**
-   - `yfinance` 무료 API의 데이터 지연 및 불완전성 위험
+   - **데이터 소스**: FinanceDataReader 사용 (KOSPI/KOSDAQ)
+   - FinanceDataReader 무료 API의 데이터 지연 및 불완전성 위험
    - 휴장일/공휴일 데이터 처리 미흡 (빈 데이터 반환 가능)
    - 티커 심볼 오타나 잘못된 심볼에 대한 검증 부족
    - OHLCV 데이터 일관성 검증 로직 부재
@@ -330,7 +360,7 @@ Sell Candidates: XYZ, ABC (변동성 상위)
    - 사용자가 추천을 맹신할 경우 투자 손실 가능성
 
 3. **API Rate Limit 및 성능 제약**
-   - `yfinance` 무료 버전의 요청 제한으로 대량 티커 처리 시 실패 가능
+   - FinanceDataReader 무료 버전의 요청 제한으로 대량 티커 처리 시 실패 가능
    - 순차 다운로드로 인한 느린 데이터 수집 속도
    - 네트워크 오류 시 재시도 로직이 있으나 완벽하지 않음
    - 캐싱 전략이 있으나 장기간 데이터 보관 미흡

@@ -5,17 +5,15 @@ and data collection utilities.
 """
 
 from nasdaq_scanner.providers.base import MarketDataProvider
-from nasdaq_scanner.providers.yfinance_provider import YFinanceProvider
+from nasdaq_scanner.providers.financedatareader_provider import FinanceDataReaderProvider
 from nasdaq_scanner.providers.data_collector import (
     collect_data,
     load_ticker_list,
-    get_nasdaq100_tickers,
 )
 
 __all__ = [
     'MarketDataProvider',
-    'YFinanceProvider',
+    'FinanceDataReaderProvider',
     'collect_data',
     'load_ticker_list',
-    'get_nasdaq100_tickers',
 ]

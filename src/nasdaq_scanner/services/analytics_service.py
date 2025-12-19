@@ -5,15 +5,12 @@ metric computation, and ranking generation.
 """
 
 import pandas as pd
+import numpy as np
 from datetime import date
 from typing import Dict, Any, List, Tuple
 from pandas import DataFrame
 
 from nasdaq_scanner.providers import collect_data
-from nasdaq_scanner.core.analytics import (
-    compute_daily_returns,
-    compute_volatility,
-)
 from nasdaq_scanner.core.analysis_functions import (
     calc_daily_returns,
     calc_volatility_proxy,
@@ -49,7 +46,7 @@ class AnalyticsService:
             target_date: Target date for data collection.
 
         Returns:
-            Tuple of (price DataFrame, failed symbols list).
+            Tuple of (price DataFrame with OHLCV columns, failed symbols list).
         """
         return collect_data(
             ticker_source,
@@ -60,92 +57,104 @@ class AnalyticsService:
     def compute_metrics(
         self,
         price_df: DataFrame,
-        volatility_window: int,
+        volatility_window: int = 1,  # Not used, kept for compatibility
     ) -> DataFrame:
-        """Compute metrics from price data.
+        """Compute metrics from OHLCV price data.
 
         Uses core/analysis_functions.py for consistent calculation:
-        - calc_daily_returns(): Adds 'return' column (daily return %)
-        - calc_volatility_proxy(): Adds 'vol' column (intraday volatility %)
+        - calc_daily_returns(): Adds 'return' column ((Close - Open) / Open * 100)
+        - calc_volatility_proxy(): Adds 'vol' column ((High - Low) / Open * 100)
 
         Args:
-            price_df: DataFrame with columns: ticker, date, close, volume.
+            price_df: DataFrame with columns: ticker, date, open, high, low, close, volume.
             volatility_window: Window size for volatility calculation (unused, kept for compatibility).
 
         Returns:
             DataFrame with computed metrics:
-            - ticker, date, close, volume
+            - ticker, date, open, high, low, close, volume
             - return: Daily return percentage (from calc_daily_returns)
             - vol: Intraday volatility percentage (from calc_volatility_proxy)
         """
         if price_df.empty:
             return pd.DataFrame()
 
+        # Validate required columns
+        required_cols = ["ticker", "date", "open", "high", "low", "close"]
+        missing_cols = [col for col in required_cols if col not in price_df.columns]
+        if missing_cols:
+            # If OHLC data not available, return empty
+            return pd.DataFrame()
+
         # Use core/analysis_functions.py for consistent calculation
         # Step 1: Calculate daily returns (adds 'return' column)
         df_with_returns = calc_daily_returns(price_df)
 
-        # Step 2: Calculate volatility proxy (adds 'vol' column)
-        # Note: calc_volatility_proxy requires 'open', 'high', 'low' columns
-        # If not available, use price range as fallback
-        if all(col in df_with_returns.columns for col in ['open', 'high', 'low']):
-            df_with_metrics = calc_volatility_proxy(df_with_returns)
+        # Step 2: Calculate volatility proxy (adds 'vol' column) - Range volatility (High-Low)/Open
+        df_with_vol_range = calc_volatility_proxy(df_with_returns)
+
+        # Step 3: Calculate volatility using standard deviation (adds 'vol_std' column)
+        # For rolling standard deviation, we need multiple days of data
+        from nasdaq_scanner.core.analysis_functions import calc_volatility_std
+        df_with_vol_std = calc_volatility_std(df_with_vol_range, window=5)
+        
+        # Use vol_std as primary volatility measure, fallback to range volatility
+        if 'vol_std' in df_with_vol_std.columns:
+            # For single day data, use range volatility; for multiple days, use std
+            df_with_vol_std['vol'] = df_with_vol_std['vol_std'].fillna(df_with_vol_std.get('vol', 0))
         else:
-            # If OHLC data not available, use price range as volatility proxy
-            df_with_metrics = df_with_returns.copy()
-            # Calculate vol as price range / close * 100 (percentage)
-            for ticker in df_with_metrics['ticker'].unique():
-                ticker_mask = df_with_metrics['ticker'] == ticker
-                ticker_data = df_with_metrics[ticker_mask].sort_values('date')
-                if len(ticker_data) >= MIN_DATA_POINTS_FOR_ANALYSIS:
-                    price_range = ticker_data['close'].max() - ticker_data['close'].min()
-                    base_price = ticker_data['close'].iloc[0]
-                    vol_pct = (price_range / base_price * 100) if base_price > 0 else 0.0
-                    df_with_metrics.loc[ticker_mask, 'vol'] = vol_pct
-                else:
-                    df_with_metrics.loc[ticker_mask, 'vol'] = 0.0
+            df_with_vol_std['vol'] = df_with_vol_range.get('vol', 0)
+        
+        df_with_metrics = df_with_vol_std
+
+        # Filter out NaN and inf values
+        df_clean = df_with_metrics[
+            df_with_metrics["return"].notna() &
+            df_with_metrics["vol"].notna() &
+            np.isfinite(df_with_metrics["return"]) &
+            np.isfinite(df_with_metrics["vol"])
+        ].copy()
+
+        if df_clean.empty:
+            # Log why data was filtered out
+            logger.warning(f"All data filtered out after metrics calculation. Original rows: {len(df_with_metrics)}")
+            if not df_with_metrics.empty:
+                logger.debug(f"Return NaN count: {df_with_metrics['return'].isna().sum()}")
+                logger.debug(f"Vol NaN count: {df_with_metrics['vol'].isna().sum()}")
+                logger.debug(f"Return inf count: {np.isinf(df_with_metrics['return']).sum() if 'return' in df_with_metrics.columns else 0}")
+                logger.debug(f"Vol inf count: {np.isinf(df_with_metrics['vol']).sum() if 'vol' in df_with_metrics.columns else 0}")
+                # Check for zero open prices
+                zero_open_count = (df_with_metrics['open'] == 0).sum() if 'open' in df_with_metrics.columns else 0
+                logger.debug(f"Zero open price count: {zero_open_count}")
+            return pd.DataFrame()
 
         # Return latest data for each ticker (for ranking)
-        # This matches the expected format for rank_movers(): ticker, date, close, return, vol
+        # For single day analysis, we just need the latest date's data
         latest_data = []
-        for ticker in df_with_metrics['ticker'].unique():
-            ticker_data = df_with_metrics[df_with_metrics['ticker'] == ticker].sort_values('date')
-            if len(ticker_data) >= MIN_DATA_POINTS_FOR_ANALYSIS:
+        for ticker in df_clean['ticker'].unique():
+            ticker_data = df_clean[df_clean['ticker'] == ticker].sort_values('date')
+            if not ticker_data.empty:
+                # Use latest date's data
                 latest = ticker_data.iloc[-1]
-                # Ensure we have return and vol columns
-                if 'return' not in latest.index or pd.isna(latest.get('return')):
-                    continue  # Skip if no valid return
                 latest_data.append(latest)
 
         if not latest_data:
+            logger.warning("No valid data after filtering")
             return pd.DataFrame()
 
         result_df = pd.DataFrame(latest_data)
+        
+        # Ensure we have required columns
+        required_result_cols = ["ticker", "date", "return", "vol"]
+        missing_result_cols = [col for col in required_result_cols if col not in result_df.columns]
+        if missing_result_cols:
+            logger.error(f"Missing required columns in result: {missing_result_cols}")
+            return pd.DataFrame()
+        
+        # Ensure vol column has valid values (fill NaN with 0 for range volatility)
+        if 'vol' in result_df.columns:
+            result_df['vol'] = result_df['vol'].fillna(0)
+        
         return result_df
-
-    def apply_filters(
-        self,
-        metrics_df: DataFrame,
-        min_return_pct: float,
-        max_return_pct: float,
-        min_vol_pct: float,
-    ) -> DataFrame:
-        """Apply filters to metrics DataFrame.
-
-        Args:
-            metrics_df: DataFrame with metrics.
-            min_return_pct: Minimum return percentage filter.
-            max_return_pct: Maximum return percentage filter.
-            min_vol_pct: Minimum volatility percentage filter.
-
-        Returns:
-            Filtered DataFrame.
-        """
-        return metrics_df[
-            (metrics_df['return_pct'] >= min_return_pct) &
-            (metrics_df['return_pct'] <= max_return_pct) &
-            (metrics_df['vol_pct'] >= min_vol_pct)
-        ].copy()
 
     def get_top_rankings(
         self,
@@ -157,7 +166,7 @@ class AnalyticsService:
         Uses core/analysis_functions.py::rank_movers() for consistent ranking.
 
         Args:
-            metrics_df: DataFrame with metrics (columns: ticker, date, close, return, vol).
+            metrics_df: DataFrame with metrics (columns: ticker, date, return, vol).
             n: Number of top movers to return (default: 10).
 
         Returns:
@@ -168,13 +177,12 @@ class AnalyticsService:
         """
         if metrics_df.empty:
             return {
-                'volatile': pd.DataFrame(columns=metrics_df.columns),
-                'gainers': pd.DataFrame(columns=metrics_df.columns),
-                'losers': pd.DataFrame(columns=metrics_df.columns),
+                'volatile': pd.DataFrame(),
+                'gainers': pd.DataFrame(),
+                'losers': pd.DataFrame(),
             }
 
         # Use core/analysis_functions.py::rank_movers() for consistent ranking
-        # This function expects: ticker, return, vol columns
         rankings = rank_movers(metrics_df, top_n=n)
 
         return {
@@ -183,3 +191,67 @@ class AnalyticsService:
             'losers': rankings['losers'],
         }
 
+    def get_recommendations(
+        self,
+        metrics_df: DataFrame,
+        top_n: int = 5,
+    ) -> Dict[str, DataFrame]:
+        """Get investment recommendations (observations, not advice).
+
+        Args:
+            metrics_df: DataFrame with metrics (columns: ticker, date, return, vol).
+            top_n: Number of recommendations per category (default: 5).
+
+        Returns:
+            Dictionary with keys:
+            - 'observations': Top N stocks with high return + high volatility (intersection)
+            - 'warnings': Top N stocks with sharp decline + high volatility
+        """
+        if metrics_df.empty:
+            return {
+                'observations': pd.DataFrame(),
+                'warnings': pd.DataFrame(),
+            }
+
+        # Filter valid data
+        df_clean = metrics_df[
+            metrics_df["return"].notna() &
+            metrics_df["vol"].notna() &
+            np.isfinite(metrics_df["return"]) &
+            np.isfinite(metrics_df["vol"])
+        ].copy()
+
+        if df_clean.empty:
+            return {
+                'observations': pd.DataFrame(),
+                'warnings': pd.DataFrame(),
+            }
+
+        # Observations: High return + High volatility (intersection)
+        top_gainers = df_clean.nlargest(top_n * 2, 'return')
+        top_volatile = df_clean.nlargest(top_n * 2, 'vol')
+        
+        gainer_tickers = set(top_gainers['ticker'].unique())
+        volatile_tickers = set(top_volatile['ticker'].unique())
+        observation_tickers = gainer_tickers & volatile_tickers
+
+        if observation_tickers:
+            observations = df_clean[df_clean['ticker'].isin(observation_tickers)].copy()
+            observations = observations.nlargest(top_n, 'return')
+        else:
+            observations = pd.DataFrame()
+
+        # Warnings: Sharp decline + High volatility
+        losers = df_clean[df_clean['return'] < 0].copy()
+        if not losers.empty:
+            # Top losers by return (most negative)
+            top_losers = losers.nsmallest(top_n * 2, 'return')
+            # From top losers, select by volatility
+            warnings = top_losers.nlargest(top_n, 'vol')
+        else:
+            warnings = pd.DataFrame()
+
+        return {
+            'observations': observations,
+            'warnings': warnings,
+        }

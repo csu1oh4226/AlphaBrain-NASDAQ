@@ -1,101 +1,98 @@
-"""Signal generation functions for rule-based analysis.
+"""Signal generation for buy/sell candidates.
 
-This module provides functions for applying rules to a DataFrame and generating
-signals with reasons based on matching conditions.
+This module provides functions to generate buy and sell signals based on:
+- Volatility (high volatility)
+- Daily returns (positive for buy, negative for sell)
+
+Rules:
+- Buy candidates: High volatility + Positive daily return
+- Sell candidates: High volatility + Negative daily return
 """
 
 import pandas as pd
+import numpy as np
 from pandas import DataFrame
-from typing import List, Dict, Any, Callable
+from typing import Dict, List
+
+logger = logging.getLogger(__name__)
 
 
-def generate_signals(df: DataFrame, rules: List[Dict[str, Any]]) -> DataFrame:
-    """Generate signals by applying rules to DataFrame rows.
-
-    Rules are evaluated in order, and the first matching rule's action is used as the signal.
-    All matching rule names are recorded in the reasons field.
+def generate_signals(
+    df: DataFrame,
+    volatility_threshold: float = 3.0,  # Minimum volatility percentage
+    top_n: int = 10
+) -> Dict[str, DataFrame]:
+    """Generate buy and sell signals based on volatility and returns.
 
     Args:
-        df: DataFrame to apply rules to. Each row will be evaluated against all rules.
-        rules: List of rule dictionaries, each containing:
-            - name: str - Rule name (used in reasons)
-            - condition: Callable[[pd.Series], bool] - Condition function that takes a row
-              and returns True if the rule matches
-            - action: str - Signal action to apply when rule matches (e.g., "buy", "sell", "watch")
+        df: DataFrame with columns: ticker, date, return, vol (and optionally others).
+        volatility_threshold: Minimum volatility percentage to consider (default: 3.0%).
+        top_n: Number of top candidates to return (default: 10).
 
     Returns:
-        DataFrame with added 'signal' and 'reasons' columns:
-        - signal: str or NaN - Signal action from first matching rule, or NaN if no rules match
-        - reasons: List[str] - List of all matching rule names
-        Original DataFrame is not modified.
-
-    Raises:
-        KeyError: If a rule is missing required keys ('name', 'condition', 'action').
-        ValueError: If condition function raises an exception.
-
-    Examples:
-        >>> df = pd.DataFrame({
-        ...     'symbol': ['AAPL', 'MSFT'],
-        ...     'return_pct': [6.0, 3.0]
-        ... })
-        >>> def high_return(row): return row['return_pct'] > 5.0
-        >>> rules = [{'name': 'high_return', 'condition': high_return, 'action': 'buy'}]
-        >>> result = generate_signals(df, rules)
-        >>> result.loc[result['symbol'] == 'AAPL', 'signal'].iloc[0]
-        'buy'
+        Dictionary with keys:
+        - 'buy_candidates': DataFrame with buy candidates (high vol + positive return)
+        - 'sell_candidates': DataFrame with sell candidates (high vol + negative return)
     """
-    # Validate rules structure
-    required_keys = {"name", "condition", "action"}
-    for i, rule in enumerate(rules):
-        missing_keys = required_keys - set(rule.keys())
-        if missing_keys:
-            raise KeyError(
-                f"Rule at index {i} is missing required keys: {', '.join(missing_keys)}. "
-                f"Required keys: {', '.join(required_keys)}"
-            )
+    if df.empty:
+        return {
+            'buy_candidates': pd.DataFrame(),
+            'sell_candidates': pd.DataFrame(),
+        }
 
-    # Create a copy to avoid side effects
-    result_df = df.copy()
+    # Validate required columns
+    required_cols = ["ticker", "return", "vol"]
+    missing_cols = [col for col in required_cols if col not in df.columns]
+    if missing_cols:
+        raise KeyError(f"Missing required columns: {', '.join(missing_cols)}")
 
-    # Initialize signal and reasons columns
-    result_df["signal"] = pd.NA
-    result_df["reasons"] = result_df.apply(lambda _: [], axis=1)
+    # Filter out NaN and inf values
+    df_clean = df[
+        df["return"].notna() &
+        df["vol"].notna() &
+        np.isfinite(df["return"]) &
+        np.isfinite(df["vol"])
+    ].copy()
 
-    # Apply rules to each row
-    for idx, row in result_df.iterrows():
-        matching_rules: List[str] = []
-        signal_action = pd.NA
+    if df_clean.empty:
+        return {
+            'buy_candidates': pd.DataFrame(),
+            'sell_candidates': pd.DataFrame(),
+        }
 
-        # Evaluate rules in order (priority: first match wins for signal)
-        for rule in rules:
-            rule_name = rule["name"]
-            condition_func = rule["condition"]
-            action = rule["action"]
+    # Filter by volatility threshold
+    df_high_vol = df_clean[df_clean["vol"] >= volatility_threshold].copy()
 
-            try:
-                # Evaluate condition (handle non-boolean returns by converting to bool)
-                condition_result = condition_func(row)
-                # Convert to boolean (handles truthy/falsy values)
-                if pd.isna(condition_result):
-                    condition_result = False
-                else:
-                    condition_result = bool(condition_result)
+    if df_high_vol.empty:
+        return {
+            'buy_candidates': pd.DataFrame(),
+            'sell_candidates': pd.DataFrame(),
+        }
 
-                if condition_result:
-                    matching_rules.append(rule_name)
-                    # First matching rule's action becomes the signal
-                    if pd.isna(signal_action):
-                        signal_action = action
+    # Buy candidates: High volatility + Positive return
+    buy_candidates = df_high_vol[df_high_vol["return"] > 0].copy()
+    buy_candidates = buy_candidates.sort_values(
+        by=["vol", "return"],
+        ascending=[False, False]
+    ).head(top_n)
 
-            except Exception as e:
-                # Re-raise exception with context
-                raise ValueError(
-                    f"Error evaluating rule '{rule_name}' for row at index {idx}: {str(e)}"
-                ) from e
+    # Sell candidates: High volatility + Negative return
+    sell_candidates = df_high_vol[df_high_vol["return"] < 0].copy()
+    sell_candidates = sell_candidates.sort_values(
+        by=["vol", "return"],
+        ascending=[False, True]  # Most negative return first
+    ).head(top_n)
 
-        # Set signal and reasons for this row
-        result_df.at[idx, "signal"] = signal_action
-        result_df.at[idx, "reasons"] = matching_rules
+    # Select standard columns for result
+    standard_cols = ["ticker", "date", "open", "high", "low", "close", "volume", "return", "vol"]
+    
+    def _select_columns(df_result: DataFrame) -> DataFrame:
+        if df_result.empty:
+            return df_result
+        available_cols = [col for col in standard_cols if col in df_result.columns]
+        return df_result[available_cols]
 
-    return result_df
-
+    return {
+        'buy_candidates': _select_columns(buy_candidates),
+        'sell_candidates': _select_columns(sell_candidates),
+    }

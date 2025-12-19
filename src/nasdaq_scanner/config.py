@@ -1,4 +1,4 @@
-"""Configuration constants for the NASDAQ Scanner application.
+"""Configuration constants for the KOSPI/KOSDAQ Scanner application.
 
 This module contains all magic numbers, default values, and configuration
 constants used throughout the application.
@@ -13,12 +13,12 @@ CACHE_TTL_SECONDS: int = 3600  # 1 hour cache TTL
 DEFAULT_MAX_RETRIES: int = 2
 MIN_DATA_POINTS_FOR_ANALYSIS: int = 2
 
-# YFinance Provider Configuration
-YFINANCE_HISTORY_LOOKBACK_DAYS: int = 5  # Days to look back for history data
-YFINANCE_HISTORY_LOOKAHEAD_DAYS: int = 1  # Days to look ahead for history data
+# FinanceDataReader Provider Configuration
+FDR_HISTORY_LOOKBACK_DAYS: int = 30  # Days to look back for history data (for rolling calculations)
 
 # Price Data Column Names
 PRICE_DATA_COLUMNS: List[str] = ["ticker", "date", "close", "volume"]
+OHLCV_COLUMNS: List[str] = ["ticker", "date", "open", "high", "low", "close", "volume"]
 
 # Volatility Configuration
 DEFAULT_VOLATILITY_WINDOW: int = 5
@@ -66,7 +66,10 @@ SELL_THRESHOLD_HIGH_VOLATILITY: float = 5.0
 TEMP_UNIVERSE_FILENAME: str = "temp_universe.csv"
 
 # Ticker Source Types
-TICKER_SOURCE_NASDAQ100: str = "nasdaq-100"
+TICKER_SOURCE_KOSPI_INDEX: str = "kospi-index"
+TICKER_SOURCE_KOSPI_TOP: str = "kospi-top"
+TICKER_SOURCE_KOSDAQ_INDEX: str = "kosdaq-index"
+TICKER_SOURCE_KOSDAQ_TOP: str = "kosdaq-top"
 TICKER_SOURCE_CSV: str = "CSV 파일"
 TICKER_SOURCE_MANUAL: str = "직접 입력"
 

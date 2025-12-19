@@ -1,8 +1,8 @@
 """Data collection module for fetching market data.
 
 This module provides a high-level interface for collecting market data
-with support for different ticker sources (NASDAQ-100, CSV files) and
-different data providers (yfinance, etc.).
+with support for different ticker sources (KOSPI/KOSDAQ index, top stocks, CSV files) and
+FinanceDataReader provider.
 """
 
 import logging
@@ -13,38 +13,14 @@ from pathlib import Path
 from pandas import DataFrame
 
 from nasdaq_scanner.providers.base import MarketDataProvider
-from nasdaq_scanner.providers.yfinance_provider import YFinanceProvider
+from nasdaq_scanner.providers.financedatareader_provider import FinanceDataReaderProvider
 from nasdaq_scanner.core.universe import load_tickers
+from nasdaq_scanner.core.korea_universe import (
+    get_tickers,
+    get_index_symbol,
+)
 
 logger = logging.getLogger(__name__)
-
-
-def get_nasdaq100_tickers() -> List[str]:
-    """Get NASDAQ-100 ticker symbols.
-
-    Returns:
-        List of NASDAQ-100 ticker symbols (uppercase, sorted).
-
-    Note:
-        This is a hardcoded list. For production, consider fetching from
-        an API or maintaining a separate data file.
-    """
-    # NASDAQ-100 ticker list (as of 2024)
-    # In production, this should be fetched from an API or maintained in a data file
-    nasdaq100 = [
-        'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'AVGO', 'COST', 'NFLX',
-        'AMD', 'PEP', 'ADBE', 'CSCO', 'CMCSA', 'INTU', 'AMGN', 'TXN', 'QCOM', 'ISRG',
-        'AMAT', 'HON', 'BKNG', 'VRSK', 'ADI', 'REGN', 'ADP', 'PANW', 'SNPS', 'CDNS',
-        'KLAC', 'CRWD', 'MRVL', 'FTNT', 'NXPI', 'ODFL', 'DXCM', 'CTSH', 'IDXX', 'FAST',
-        'LRCX', 'KDP', 'BKR', 'PAYX', 'ROST', 'PCAR', 'ON', 'ANSS', 'CDW', 'CPRT',
-        'MELI', 'ZS', 'DASH', 'MCHP', 'CTAS', 'WBD', 'GEHC', 'TEAM', 'EXC', 'AEP',
-        'FANG', 'VRTX', 'ENPH', 'DLTR', 'ALGN', 'BIIB', 'EA', 'GFS', 'XEL', 'TTD',
-        'NDAQ', 'ZS', 'VOD', 'ILMN', 'LCID', 'RIVN', 'PTON', 'DOCN', 'HOOD', 'SOFI',
-        'RBLX', 'COIN', 'PLTR', 'AFRM', 'UPST', 'OPEN', 'WISH', 'CLOV', 'SPCE', 'SNDL',
-    ]
-    
-    # Remove duplicates and sort
-    return sorted(list(set(nasdaq100)))
 
 
 def load_ticker_list(source: Union[str, Path, List[str]]) -> List[str]:
@@ -52,7 +28,9 @@ def load_ticker_list(source: Union[str, Path, List[str]]) -> List[str]:
 
     Args:
         source: Can be:
-            - 'nasdaq-100': Load NASDAQ-100 tickers
+            - 'kosdaq-index': Load KOSDAQ index (KQ11) only
+            - 'kosdaq-top': Load top KOSDAQ stocks by market cap
+            - 'nasdaq-100': Load NASDAQ-100 tickers (legacy)
             - Path to CSV file: Load from CSV file
             - List of strings: Use directly as ticker list
 
@@ -68,7 +46,7 @@ def load_ticker_list(source: Union[str, Path, List[str]]) -> List[str]:
         normalized = []
         seen = set()
         for ticker in source:
-            ticker = str(ticker).strip().upper()
+            ticker = str(ticker).strip()
             if ticker and ticker not in seen:
                 seen.add(ticker)
                 normalized.append(ticker)
@@ -77,8 +55,14 @@ def load_ticker_list(source: Union[str, Path, List[str]]) -> List[str]:
     elif isinstance(source, (str, Path)):
         source_str = str(source)
         
-        if source_str.lower() == 'nasdaq-100':
-            return get_nasdaq100_tickers()
+        if source_str.lower() in ['kosdaq-index', 'kospi-index']:
+            # Return index symbol
+            market = 'KOSDAQ' if 'kosdaq' in source_str.lower() else 'KOSPI'
+            return [get_index_symbol(market)]
+        elif source_str.lower() in ['kosdaq-top', 'kospi-top']:
+            # Return top stocks by market cap (default: top 100)
+            market = 'KOSDAQ' if 'kosdaq' in source_str.lower() else 'KOSPI'
+            return get_tickers(market, top_n=100, by_market_cap=True)
         else:
             # Assume it's a file path
             return load_tickers(source_str)
@@ -86,7 +70,7 @@ def load_ticker_list(source: Union[str, Path, List[str]]) -> List[str]:
     else:
         raise ValueError(
             f"Unsupported source type: {type(source)}. "
-            f"Expected 'nasdaq-100', file path, or list of strings."
+            f"Expected 'kospi-index', 'kospi-top', 'kosdaq-index', 'kosdaq-top', file path, or list of strings."
         )
 
 
@@ -100,20 +84,21 @@ def collect_data(
 
     Args:
         ticker_source: Source of ticker list:
-            - 'nasdaq-100': Use NASDAQ-100 tickers
+            - 'kospi-index' or 'kosdaq-index': Use index symbol (KS11 or KQ11)
+            - 'kospi-top' or 'kosdaq-top': Use top stocks by market cap
             - Path to CSV file: Load tickers from CSV
             - List of strings: Use directly as ticker list
         target_date: Target date for data collection.
-        provider: MarketDataProvider instance. If None, uses YFinanceProvider.
+        provider: MarketDataProvider instance. If None, uses FinanceDataReaderProvider.
         max_retries: Maximum number of retries for failed requests.
 
     Returns:
         Tuple of:
-        - DataFrame with columns: ticker, date, close, volume
+        - DataFrame with columns: ticker, date, open, high, low, close, volume (OHLCV)
         - List of failed ticker symbols
 
     Examples:
-        >>> df, failed = collect_data('nasdaq-100', date(2024, 1, 15))
+        >>> df, failed = collect_data('kospi-top', date(2024, 1, 15))
         >>> len(df) > 0
         True
         >>> 'ticker' in df.columns
@@ -130,11 +115,32 @@ def collect_data(
 
     if not symbols:
         logger.warning("No tickers found in source")
-        return pd.DataFrame(columns=["ticker", "date", "close", "volume"]), []
+        from nasdaq_scanner.config import OHLCV_COLUMNS
+        return pd.DataFrame(columns=OHLCV_COLUMNS), []
 
     # Use default provider if not specified
+    # For KOSPI/KOSDAQ, use FinanceDataReaderProvider
     if provider is None:
-        provider = YFinanceProvider()
+        if isinstance(ticker_source, str):
+            source_lower = ticker_source.lower()
+            if source_lower in ['kosdaq-index', 'kospi-index']:
+                market = 'KOSDAQ' if 'kosdaq' in source_lower else 'KOSPI'
+                index_symbol = get_index_symbol(market)
+                provider = FinanceDataReaderProvider(primary_symbol=index_symbol, use_index=True)
+                logger.info(f"Using FinanceDataReaderProvider for {market} index ({index_symbol})")
+            elif source_lower in ['kosdaq-top', 'kospi-top']:
+                market = 'KOSDAQ' if 'kosdaq' in source_lower else 'KOSPI'
+                index_symbol = get_index_symbol(market)
+                provider = FinanceDataReaderProvider(primary_symbol=index_symbol, use_index=False)
+                logger.info(f"Using FinanceDataReaderProvider for {market} stocks")
+            else:
+                # For CSV or manual input, use FinanceDataReaderProvider as default
+                provider = FinanceDataReaderProvider(primary_symbol='KS11', use_index=False)
+                logger.info("Using FinanceDataReaderProvider for individual tickers")
+        else:
+            # For list input, use FinanceDataReaderProvider as default
+            provider = FinanceDataReaderProvider(primary_symbol='KS11', use_index=False)
+            logger.info("Using FinanceDataReaderProvider for individual tickers")
 
     # Fetch data
     logger.info(f"Collecting data for {len(symbols)} tickers on {target_date}")
