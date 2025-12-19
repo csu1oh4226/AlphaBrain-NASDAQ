@@ -148,3 +148,27 @@ def save_markdown(content: str, filepath: str) -> None:
     except IOError as e:
         raise IOError(f"Error writing markdown file {filepath}: {str(e)}") from e
 
+
+def save_csv(df: DataFrame, filepath: str) -> None:
+    """Save DataFrame to CSV file.
+
+    Args:
+        df: DataFrame to save.
+        filepath: Path to output CSV file.
+
+    Raises:
+        IOError: If file cannot be written.
+
+    Examples:
+        >>> df = pd.DataFrame({'symbol': ['AAPL'], 'return_pct': [5.0]})
+        >>> save_csv(df, "output.csv")
+    """
+    try:
+        path = Path(filepath)
+        # Create parent directories if they don't exist
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        df.to_csv(path, index=False, encoding="utf-8")
+    except IOError as e:
+        raise IOError(f"Error writing CSV file {filepath}: {str(e)}") from e
+

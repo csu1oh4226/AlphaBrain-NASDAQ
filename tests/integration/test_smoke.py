@@ -15,7 +15,7 @@ from pathlib import Path
 from nasdaq_scanner.core.universe import load_tickers
 from nasdaq_scanner.core.metrics import calc_return_pct, calc_intraday_vol_pct
 from nasdaq_scanner.core.ranking import top_n, bottom_n
-from nasdaq_scanner.reporter.report import render_markdown, save_markdown
+from nasdaq_scanner.reporter.report import render_markdown, save_markdown, save_csv
 from nasdaq_scanner.providers.data_provider import fetch_ohlcv_batch
 
 
@@ -106,9 +106,20 @@ def test_smoke_pipeline_with_mock_data() -> None:
             with open(output_path, "r", encoding="utf-8") as f:
                 saved_content = f.read()
             assert saved_content == report
+
+            # Step 7: Save CSV
+            csv_path = output_path.replace(".md", "_top.csv")
+            save_csv(top_movers, csv_path)
+            assert Path(csv_path).exists()
+            # Verify CSV content
+            csv_df = pd.read_csv(csv_path)
+            assert len(csv_df) <= 2  # n=2
+            assert "symbol" in csv_df.columns
         finally:
             if os.path.exists(output_path):
                 os.unlink(output_path)
+            if os.path.exists(csv_path):
+                os.unlink(csv_path)
 
     finally:
         if os.path.exists(universe_path):
@@ -195,4 +206,72 @@ def test_smoke_end_to_end_minimal() -> None:
     finally:
         if os.path.exists(universe_path):
             os.unlink(universe_path)
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_smoke_csv_export() -> None:
+    """Smoke test: CSV export functionality."""
+    # Create sample DataFrame
+    df = pd.DataFrame(
+        {
+            "symbol": ["AAPL", "MSFT"],
+            "return_pct": [5.0, 3.0],
+            "vol_pct": [2.0, 1.5],
+        }
+    )
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
+        csv_path = f.name
+
+    try:
+        save_csv(df, csv_path)
+        assert Path(csv_path).exists()
+
+        # Verify CSV content
+        loaded_df = pd.read_csv(csv_path)
+        assert len(loaded_df) == 2
+        assert "symbol" in loaded_df.columns
+        assert "return_pct" in loaded_df.columns
+        assert "vol_pct" in loaded_df.columns
+        assert loaded_df["symbol"].iloc[0] == "AAPL"
+    finally:
+        if os.path.exists(csv_path):
+            os.unlink(csv_path)
+
+
+@pytest.mark.integration
+@pytest.mark.slow
+def test_smoke_output_files_structure() -> None:
+    """Smoke test: Verify output files are created in correct structure."""
+    # Create sample data
+    top_df = pd.DataFrame({"symbol": ["AAPL"], "return_pct": [5.0]})
+    report_content = "# Test Report\n\nTest content"
+
+    # Create reports directory structure
+    with tempfile.TemporaryDirectory() as temp_dir:
+        reports_dir = Path(temp_dir) / "reports"
+        reports_dir.mkdir(exist_ok=True)
+
+        analysis_date = date(2024, 1, 15)
+        md_path = reports_dir / f"{analysis_date.strftime('%Y-%m-%d')}_report.md"
+        csv_path = reports_dir / f"{analysis_date.strftime('%Y-%m-%d')}_top.csv"
+
+        # Save files
+        save_markdown(report_content, str(md_path))
+        save_csv(top_df, str(csv_path))
+
+        # Verify files exist
+        assert md_path.exists()
+        assert csv_path.exists()
+
+        # Verify markdown content
+        with open(md_path, "r", encoding="utf-8") as f:
+            md_content = f.read()
+        assert "Test Report" in md_content
+
+        # Verify CSV content
+        csv_df = pd.read_csv(csv_path)
+        assert len(csv_df) == 1
+        assert csv_df["symbol"].iloc[0] == "AAPL"
 

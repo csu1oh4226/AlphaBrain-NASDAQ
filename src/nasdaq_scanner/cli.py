@@ -5,7 +5,7 @@ Command-line interface for running the daily movers and volatility analysis.
 
 import sys
 import logging
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -18,7 +18,7 @@ except ImportError:
 from nasdaq_scanner.core.universe import load_tickers
 from nasdaq_scanner.core.metrics import calc_return_pct, calc_intraday_vol_pct
 from nasdaq_scanner.core.ranking import top_n, bottom_n
-from nasdaq_scanner.reporter.report import render_markdown, save_markdown
+from nasdaq_scanner.reporter.report import render_markdown, save_markdown, save_csv
 from nasdaq_scanner.providers.data_provider import fetch_ohlcv_batch
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ def run_analysis(
     universe_path: str,
     n: int = 10,
     output_path: Optional[str] = None,
+    export_csv: bool = True,
 ) -> None:
     """Run the complete analysis pipeline.
 
@@ -57,6 +58,7 @@ def run_analysis(
         universe_path: Path to CSV file with ticker symbols.
         n: Number of top/bottom movers to include (default: 10).
         output_path: Optional path to save markdown report. If None, prints to stdout.
+        export_csv: Whether to export CSV files for top movers (default: True).
     """
     logger.info(f"Starting analysis for date: {analysis_date}")
 
@@ -131,6 +133,16 @@ def run_analysis(
             logger.info("Report saved successfully")
         except Exception as e:
             _handle_error("Failed to save report", e)
+
+        # Export CSV files if requested
+        if export_csv:
+            # Generate CSV file path based on markdown path
+            csv_path = Path(output_path).parent / f"{analysis_date.strftime('%Y-%m-%d')}_top.csv"
+            try:
+                save_csv(top_movers, str(csv_path))
+                logger.info(f"Top movers CSV saved to: {csv_path}")
+            except Exception as e:
+                logger.warning(f"Failed to save CSV file: {str(e)}")
     else:
         # Print to stdout
         print(markdown_content)
@@ -142,8 +154,8 @@ def run_analysis(
 @click.option(
     "--date",
     "analysis_date_str",
-    required=True,
-    help="Analysis date in YYYY-MM-DD format",
+    default=None,
+    help="Analysis date in YYYY-MM-DD format (default: today)",
 )
 @click.option(
     "--n",
@@ -161,13 +173,21 @@ def run_analysis(
     "--output",
     "output_path",
     default=None,
-    help="Path to save markdown report (default: print to stdout)",
+    help="Path to save markdown report (default: auto-generate in reports/ directory)",
+)
+@click.option(
+    "--no-csv",
+    "no_csv",
+    is_flag=True,
+    default=False,
+    help="Disable CSV export for top movers",
 )
 def main(
-    analysis_date_str: str,
+    analysis_date_str: Optional[str],
     n: int,
     universe_path: str,
     output_path: Optional[str],
+    no_csv: bool,
 ) -> None:
     """NASDAQ Daily Movers & Volatility Analyzer.
 
@@ -180,20 +200,31 @@ def main(
         print("Error: click is not installed. Install it with: pip install click")
         sys.exit(1)
 
-    # Parse date
-    try:
-        analysis_date = date.fromisoformat(analysis_date_str)
-    except ValueError:
-        logger.error(f"Invalid date format: {analysis_date_str}. Use YYYY-MM-DD")
-        sys.exit(1)
+    # Parse date (default to today if not provided)
+    if analysis_date_str is None:
+        analysis_date = date.today()
+        logger.info(f"No date provided, using today: {analysis_date}")
+    else:
+        try:
+            analysis_date = date.fromisoformat(analysis_date_str)
+        except ValueError:
+            logger.error(f"Invalid date format: {analysis_date_str}. Use YYYY-MM-DD")
+            sys.exit(1)
 
     # Validate universe file exists
     if not Path(universe_path).exists():
         logger.error(f"Universe file not found: {universe_path}")
         sys.exit(1)
 
+    # Auto-generate output path if not provided
+    if output_path is None:
+        reports_dir = Path("reports")
+        reports_dir.mkdir(exist_ok=True)
+        output_path = str(reports_dir / f"{analysis_date.strftime('%Y-%m-%d')}_report.md")
+        logger.info(f"Auto-generated output path: {output_path}")
+
     # Run analysis
-    run_analysis(analysis_date, universe_path, n, output_path)
+    run_analysis(analysis_date, universe_path, n, output_path, export_csv=not no_csv)
 
 
 if __name__ == "__main__":
