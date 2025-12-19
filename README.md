@@ -33,8 +33,11 @@ cd AlphaBrain-NASDAQ
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# 의존성 설치
-pip install -r requirements.txt
+# 개발 의존성 포함 설치
+pip install -r requirements-dev.txt
+
+# 또는 편집 가능 모드로 설치
+pip install -e ".[dev]"
 ```
 
 ### 설정
@@ -49,31 +52,44 @@ cp .env.example .env
 ## 📖 사용 방법
 
 ```bash
-# 오늘 날짜로 분석 실행
-python app/main.py --date 2024-01-15
+# CLI 실행 (구현 예정)
+nasdaq-scanner --date 2024-01-15
 
-# CSV로 결과 저장
-python app/main.py --date 2024-01-15 --export csv
+# 또는 Python 모듈로 실행
+python -m nasdaq_scanner.cli --date 2024-01-15
 ```
 
 ## 📁 프로젝트 구조
 
 ```
-app/
-├── main.py                 # CLI 엔트리
-├── core/
-│   ├── universe.py        # 유니버스 관리
-│   ├── providers/         # Provider 인터페이스 + 구현
-│   ├── fetcher.py         # 데이터 수집
-│   ├── analyzer.py        # 분석 로직
-│   ├── ranker.py          # Top 10 랭킹
-│   ├── recommender.py     # Watchlist 제안
-│   └── reporter.py        # 리포트 생성
-├── storage/
-│   ├── cache.py           # SQLite/파일 캐시
-│   └── exporter.py        # CSV/DB export
-└── config/
-    └── rules.yaml         # 룰 설정 파일
+.
+├── src/
+│   └── nasdaq_scanner/
+│       ├── __init__.py
+│       ├── cli.py              # CLI 엔트리 포인트
+│       ├── core/                # 핵심 분석 로직 (순수 함수)
+│       │   ├── universe.py      # 유니버스 관리
+│       │   ├── analyzer.py      # 변동성/등락률 계산
+│       │   ├── ranker.py        # Top 10 랭킹
+│       │   └── recommender.py   # Watchlist 제안
+│       ├── providers/            # 외부 API 어댑터 (yfinance 등)
+│       │   ├── base.py          # Provider 인터페이스
+│       │   ├── yfinance.py      # yfinance 어댑터
+│       │   └── mock.py          # 테스트용 Mock Provider
+│       ├── storage/              # 저장소 및 캐시
+│       │   ├── cache.py         # SQLite/파일 캐시
+│       │   └── exporter.py      # CSV/DB export
+│       └── reporter/             # 리포트 생성
+│           └── formatter.py      # 콘솔/CSV/HTML 리포트
+├── tests/
+│   ├── conftest.py              # 공통 fixtures
+│   ├── unit/                    # 단위 테스트
+│   ├── integration/             # 통합 테스트
+│   └── fixtures/                # 테스트 데이터
+├── pyproject.toml               # 프로젝트 설정 (의존성, pytest 등)
+├── requirements.txt             # 프로덕션 의존성
+├── requirements-dev.txt         # 개발 의존성
+└── pytest.ini                   # pytest 설정
 ```
 
 ## 🧪 테스트
@@ -83,8 +99,43 @@ app/
 pytest
 
 # 커버리지 포함
-pytest --cov=app
+pytest --cov=src/nasdaq_scanner --cov-report=html
+
+# 특정 마커만 실행
+pytest -m unit              # 단위 테스트만
+pytest -m integration       # 통합 테스트만
+pytest -m "not slow"        # 느린 테스트 제외
 ```
+
+## 🛠️ 개발 워크플로우
+
+```bash
+# 코드 포맷팅
+make format
+# 또는
+black src/ tests/
+ruff check --fix src/ tests/
+
+# 린팅
+make lint
+# 또는
+ruff check src/ tests/
+
+# 타입 체크
+make type-check
+# 또는
+mypy src/
+
+# 모든 검사 실행
+make lint && make type-check && make test
+```
+
+## 🏗️ 아키텍처 원칙
+
+- **순수 함수 중심**: 비즈니스 로직은 순수 함수로 작성 (부작용 최소화)
+- **어댑터 패턴**: 외부 API 호출(yfinance 등)은 어댑터로 분리
+- **테스트 가능성**: 모든 외부 의존성은 mock/stub으로 대체 가능
+- **의존성 주입**: Provider는 인터페이스 기반으로 주입
 
 ## 📝 문서
 
