@@ -51,6 +51,16 @@ logs/
 .cache/
 *.cache
 
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+coverage.xml
+*.cover
+.hypothesis/
+
 # OS
 .DS_Store
 Thumbs.db
